@@ -44,7 +44,6 @@ def minimize_toy():
     d = eeem.copy()
     a0 = 1
     a = zerom.copy()
-    innerit = 0
     outeriter = 0
     maxoutit = 11
     kkttol = 0
@@ -57,9 +56,7 @@ def minimize_toy():
     # Calculate function values and gradients
     if outeriter == 0:
         f0val, df0dx, fval, dfdx = toy(xval)
-        outvector1 = np.concatenate(
-            (np.array([outeriter, innerit, f0val]), fval.flatten())
-        )
+        outvector1 = np.concatenate((np.array([f0val]), fval.flatten()))
         outvector2 = xval.flatten()
 
         outvector1s += [outvector1]
@@ -128,9 +125,7 @@ def minimize_toy():
             d,
         )
 
-        outvector1 = np.concatenate(
-            (np.array([outeriter, innerit, f0val]), fval.flatten())
-        )
+        outvector1 = np.concatenate((np.array([f0val]), fval.flatten()))
         outvector2 = xval.flatten()
 
         outvector1s += [outvector1]
@@ -145,68 +140,50 @@ def test_mma_toy():
 
     ref_outvector1s = np.array(
         [
-            [0, 0, 29, -6, -6],
-            [1, 0, 9.9599287, -2.15166048, 0.21519475],
-            [2, 0, 8.80303134, -0.11433839, 0.02320731],
+            [29, -6, -6],
+            [9.9599287, -2.15166048, 0.21519475],
+            [8.80303134, -0.11433839, 0.02320731],
             [
-                3.00000000e00,
-                0.00000000e00,
                 8.77032876e00,
                 -1.98047257e-04,
                 1.64412280e-05,
             ],
             [
-                4.00000000e00,
-                0.00000000e00,
                 8.77024960e00,
                 7.88739252e-07,
                 -2.46903902e-06,
             ],
             [
-                5.00000000e00,
-                0.00000000e00,
                 8.77024658e00,
                 8.20107875e-08,
                 -6.17503177e-07,
             ],
             [
-                6.00000000e00,
-                0.00000000e00,
                 8.77024613e00,
                 -1.80068287e-07,
                 -1.85263591e-07,
             ],
             [
-                7.00000000e00,
-                0.00000000e00,
                 8.77024610e00,
                 -2.31151580e-07,
                 -1.33492204e-07,
             ],
             [
-                8.00000000e00,
-                0.00000000e00,
                 8.77024610e00,
                 -2.34501032e-07,
                 -1.31555208e-07,
             ],
             [
-                9.00000000e00,
-                0.00000000e00,
                 8.77024610e00,
                 -2.34509775e-07,
                 -1.31552747e-07,
             ],
             [
-                1.00000000e01,
-                0.00000000e00,
                 8.77024610e00,
                 -2.34510143e-07,
                 -1.31552799e-07,
             ],
             [
-                1.10000000e01,
-                0.00000000e00,
                 8.77024610e00,
                 -2.34510360e-07,
                 -1.31552859e-07,
