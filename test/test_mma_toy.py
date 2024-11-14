@@ -177,12 +177,12 @@ def test_mma_toy(target_function, name, x, lower_bound, upper_bound):
         x, target_function, lower_bound, upper_bound
     )
     ref_outvector1s = np.loadtxt(
-        f"test/test_mma_{name}_vec1.txt", delimiter=","
+        f"test/reference/test_mma_{name}_vec1.txt", delimiter=","
     )
     ref_outvector2s = np.loadtxt(
-        f"test/test_mma_{name}_vec2.txt", delimiter=","
+        f"test/reference/test_mma_{name}_vec2.txt", delimiter=","
     )
-    ref_kktnorms = np.loadtxt(f"test/test_mma_{name}_kkt.txt")
+    ref_kktnorms = np.loadtxt(f"test/reference/test_mma_{name}_kkt.txt")
 
     msg = "Unexpected outvector 1."
     assert np.allclose(ref_outvector1s, np.array(outvector1s)), msg
