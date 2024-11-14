@@ -29,9 +29,12 @@ def toy(xval: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
 def minimize(x: np.ndarray, func: callable):
     xval = x.copy()
 
-    # Initial settings
-    m = 2
+    # Count constriants.
+    _, _, fval, _ = func(xval)
+    m = len(fval)
     n = len(xval)
+
+    # Initial settings
     eeen = np.ones((n, 1))
     eeem = np.ones((m, 1))
     zeron = np.zeros((n, 1))
