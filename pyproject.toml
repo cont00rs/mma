@@ -17,3 +17,13 @@ dev = [
     "pytest>=8.3.3",
     "ruff>=0.7.3",
 ]
+
+[tool.ruff]
+line-length = 79
+lint.extend-select = ["I", "W"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 79

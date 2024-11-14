@@ -1,11 +1,11 @@
 ﻿"""
 GCMMA-MMA-Python
 
-This file is part of GCMMA-MMA-Python. GCMMA-MMA-Python is licensed under the terms of GNU 
-General Public License as published by the Free Software Foundation. For more information and 
-the LICENSE file, see <https://github.com/arjendeetman/GCMMA-MMA-Python>. 
+This file is part of GCMMA-MMA-Python. GCMMA-MMA-Python is licensed under the terms of GNU
+General Public License as published by the Free Software Foundation. For more information and
+the LICENSE file, see <https://github.com/arjendeetman/GCMMA-MMA-Python>.
 
-The orginal work is written by Krister Svanberg in MATLAB. This is the Python implementation 
+The orginal work is written by Krister Svanberg in MATLAB. This is the Python implementation
 of the code written by Arjen Deetman.
 
 This script solves the "three bar truss problem", formulated as follows:
@@ -26,7 +26,7 @@ This script solves the "three bar truss problem", formulated as follows:
         - Bar 1 connects nodes 1 and 4.
         - Bar 2 connects nodes 2 and 4.
         - Bar 3 connects nodes 3 and 4.
-        - Nodes coordinates: 
+        - Nodes coordinates:
             Node 1: (-1, 0)
             Node 2: (-1/sqrt(2), -1/sqrt(2))
             Node 3: (0, -1)
@@ -37,8 +37,8 @@ This script solves the "three bar truss problem", formulated as follows:
             Load vector p2 = (1, 1)'
             Load vector p3 = (0, 1)'
 
-    Displacement vector ui is obtained from the system K(x) * ui = pi, where K(x) is the stiffness matrix 
-    and pi is the load vector. The stiffness matrix is given by K(x) = R * D(x) * R', where D(x) is a diagonal 
+    Displacement vector ui is obtained from the system K(x) * ui = pi, where K(x) is the stiffness matrix
+    and pi is the load vector. The stiffness matrix is given by K(x) = R * D(x) * R', where D(x) is a diagonal
     matrix with diagonal elements x1, x2, x3. The derivatives of the functions fi(x) are given by:
     dfi/dxj = -(rj' * ui)^2, where rj is the j-th column of the matrix R.
 
@@ -59,12 +59,15 @@ MMA Formulation:
 
 # Loading modules
 from __future__ import division
-from mmapy import mmasub, kktcheck
-from scipy.linalg import solve # or use numpy: from numpy.linalg import solve
-from util import setup_logger
-from typing import Tuple
-import numpy as np
+
 import os
+from typing import Tuple
+
+import numpy as np
+from scipy.linalg import solve  # or use numpy: from numpy.linalg import solve
+from util import setup_logger
+
+from mma import kktcheck, mmasub
 
 
 def main() -> None:
@@ -73,15 +76,14 @@ def main() -> None:
     file = os.path.join(path, "mma_truss2.log")
     logger = setup_logger(file)
     logger.info("Started\n")
-    
+
     # Set numpy print options
-    np.set_printoptions(precision=4, formatter={'float': '{: 0.4f}'.format})
-    
+    np.set_printoptions(precision=4, formatter={"float": "{: 0.4f}".format})
+
     # Problem dimensions and initial settings
     m, n = 4, 3
     eeen = np.ones((n, 1))
     eeem = np.ones((m, 1))
-    zeron = np.zeros((n, 1))
     zerom = np.zeros((m, 1))
     xval = eeen.copy()
     xold1 = xval.copy()
@@ -99,54 +101,98 @@ def main() -> None:
     outeriter = 0
     maxoutit = 6
     kkttol = 0
-    
+
     # Initial function evaluations
     if outeriter == 0:
         f0val, df0dx, fval, dfdx = truss2(xval)
-        outvector1 = np.concatenate((np.array([outeriter, innerit, f0val]), fval.flatten()))
+        outvector1 = np.concatenate(
+            (np.array([outeriter, innerit, f0val]), fval.flatten())
+        )
         outvector2 = xval.flatten()
         # Log initial values
         logger.info("outvector1 = {}".format(outvector1))
         logger.info("outvector2 = {}\n".format(outvector2))
-    
+
     # Iterative optimization process
     kktnorm = kkttol + 10
     outit = 0
-    
+
     while kktnorm > kkttol and outit < maxoutit:
         outit += 1
         outeriter += 1
-        
+
         # Solve the MMA subproblem
         xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = mmasub(
-            m, n, outeriter, xval, xmin, xmax, xold1, xold2, f0val, df0dx, fval, dfdx, low, upp, a0, a, c, d, move)
-        
+            m,
+            n,
+            outeriter,
+            xval,
+            xmin,
+            xmax,
+            xold1,
+            xold2,
+            f0val,
+            df0dx,
+            fval,
+            dfdx,
+            low,
+            upp,
+            a0,
+            a,
+            c,
+            d,
+            move,
+        )
+
         # Update vectors
         xold2 = xold1.copy()
         xold1 = xval.copy()
         xval = xmma.copy()
-        
+
         # Recalculate function values and gradients
         f0val, df0dx, fval, dfdx = truss2(xval)
-        
+
         # Calculate KKT residuals
         residu, kktnorm, residumax = kktcheck(
-            m, n, xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, xmin, xmax, df0dx, fval, dfdx, a0, a, c, d)
-        
-        outvector1 = np.concatenate((np.array([outeriter, innerit, f0val]), fval.flatten()))
+            m,
+            n,
+            xmma,
+            ymma,
+            zmma,
+            lam,
+            xsi,
+            eta,
+            mu,
+            zet,
+            s,
+            xmin,
+            xmax,
+            df0dx,
+            fval,
+            dfdx,
+            a0,
+            a,
+            c,
+            d,
+        )
+
+        outvector1 = np.concatenate(
+            (np.array([outeriter, innerit, f0val]), fval.flatten())
+        )
         outvector2 = xval.flatten()
-        
+
         # Log iteration results
         logger.info("outvector1 = {}".format(outvector1))
         logger.info("outvector2 = {}".format(outvector2))
         logger.info("kktnorm    = {}\n".format(kktnorm))
-    
+
     # Final log
     logger.info("Finished")
 
 
-def truss2(xval: np.ndarray) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]:
-    
+def truss2(
+    xval: np.ndarray,
+) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     """
     Calculate the objective function, constraints, and their gradients for the truss optimization problem.
 
@@ -166,7 +212,7 @@ def truss2(xval: np.ndarray) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]
     p1 = np.array([[1, 0]]).T
     p2 = np.array([[1, 1]]).T
     p3 = np.array([[0, 1]]).T
-    K = np.dot(R,D).dot(R.T)
+    K = np.dot(R, D).dot(R.T)
     u1 = solve(K, p1)
     u2 = solve(K, p2)
     u3 = solve(K, p3)
@@ -185,6 +231,7 @@ def truss2(xval: np.ndarray) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]
     dcompl3 = -rtu3 * rtu3
     dfdx = np.concatenate((dcompl1.T, dcompl2.T, dcompl3.T, e.T))
     return f0val, df0dx, fval, dfdx
+
 
 if __name__ == "__main__":
     main()
