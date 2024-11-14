@@ -1,11 +1,11 @@
 ﻿"""
 GCMMA-MMA-Python
 
-This file is part of GCMMA-MMA-Python. GCMMA-MMA-Python is licensed under the terms of GNU 
-General Public License as published by the Free Software Foundation. For more information and 
-the LICENSE file, see <https://github.com/arjendeetman/GCMMA-MMA-Python>. 
+This file is part of GCMMA-MMA-Python. GCMMA-MMA-Python is licensed under the terms of GNU
+General Public License as published by the Free Software Foundation. For more information and
+the LICENSE file, see <https://github.com/arjendeetman/GCMMA-MMA-Python>.
 
-The orginal work is written by Krister Svanberg in MATLAB. This is the Python implementation 
+The orginal work is written by Krister Svanberg in MATLAB. This is the Python implementation
 of the code written by Arjen Deetman.
 
 Functionality:
@@ -18,25 +18,59 @@ Dependencies:
 - numpy: Numerical operations and array handling.
 - scipy: Sparse matrix operations and linear algebra.
 
-To use this module, import the desired functions and provide the necessary arguments 
+To use this module, import the desired functions and provide the necessary arguments
 according to the specific problem being solved.
 """
 
 # Loading modules
 from __future__ import division
-from scipy.sparse import diags # or use numpy: from numpy import diag as diags
-from scipy.linalg import solve # or use numpy: from numpy.linalg import solve
+
 from typing import Tuple
+
 import numpy as np
+from scipy.linalg import solve  # or use numpy: from numpy.linalg import solve
+from scipy.sparse import diags  # or use numpy: from numpy import diag as diags
 
-def mmasub(m: int, n: int, iter: int, xval: np.ndarray, xmin: np.ndarray, xmax: np.ndarray,
-           xold1: np.ndarray, xold2: np.ndarray, f0val: float,  df0dx: np.ndarray, fval: np.ndarray,
-           dfdx: np.ndarray, low: np.ndarray, upp: np.ndarray, a0: float, a: np.ndarray, c: np.ndarray,
-           d: np.ndarray, move: float = 0.5, asyinit: float = 0.5, asydecr: float = 0.7, asyincr: float = 1.2, 
-           asymin: float = 0.01, asymax: float = 10, raa0: float = 0.00001, 
-           albefa: float = 0.1) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, 
-                                         np.ndarray, float, np.ndarray, np.ndarray]:
 
+def mmasub(
+    m: int,
+    n: int,
+    iter: int,
+    xval: np.ndarray,
+    xmin: np.ndarray,
+    xmax: np.ndarray,
+    xold1: np.ndarray,
+    xold2: np.ndarray,
+    f0val: float,
+    df0dx: np.ndarray,
+    fval: np.ndarray,
+    dfdx: np.ndarray,
+    low: np.ndarray,
+    upp: np.ndarray,
+    a0: float,
+    a: np.ndarray,
+    c: np.ndarray,
+    d: np.ndarray,
+    move: float = 0.5,
+    asyinit: float = 0.5,
+    asydecr: float = 0.7,
+    asyincr: float = 1.2,
+    asymin: float = 0.01,
+    asymax: float = 10,
+    raa0: float = 0.00001,
+    albefa: float = 0.1,
+) -> Tuple[
+    np.ndarray,
+    np.ndarray,
+    float,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    float,
+    np.ndarray,
+    np.ndarray,
+]:
     """
     Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
@@ -72,9 +106,9 @@ def mmasub(m: int, n: int, iter: int, xval: np.ndarray, xmin: np.ndarray, xmax: 
         asydecr (float): Factor by which the asymptotes distance is decreased. The default value is 0.7.
         asyincr (float): Factor by which the asymptotes distance is increased. The default value is 1.2.
         asymin (float): Factor to calculate the minimum distance of the asymptotes. The default value is 0.01.
-        asymax (float): Factor to calculate the maximum distance of the asymptotes. The default value is 10. 
+        asymax (float): Factor to calculate the maximum distance of the asymptotes. The default value is 10.
         raa0 (float): Parameter representing the function approximation's accuracy. The default value is 0.00001.
-        albefa (float): Factor to calculate the bounds alfa and beta. The default value is 0.1. 
+        albefa (float): Factor to calculate the bounds alfa and beta. The default value is 0.1.
 
     Returns:
         Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
@@ -90,12 +124,12 @@ def mmasub(m: int, n: int, iter: int, xval: np.ndarray, xmin: np.ndarray, xmax: 
             - low (np.ndarray): Updated lower bounds for the design variables.
             - upp (np.ndarray): Updated upper bounds for the design variables.
     """
-    
+
     epsimin = 0.0000001
     eeen = np.ones((n, 1), dtype=float)
     eeem = np.ones((m, 1), dtype=float)
     zeron = np.zeros((n, 1), dtype=float)
-    
+
     # Calculation of the asymptotes low and upp
     if iter <= 2:
         low = xval - asyinit * (xmax - xmin)
@@ -159,23 +193,53 @@ def mmasub(m: int, n: int, iter: int, xval: np.ndarray, xmin: np.ndarray, xmax: 
 
     # Solving the subproblem using the primal-dual Newton method
     xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
-        m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d)
-    
+        m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
+    )
+
     # Return values
     return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
 
-def gcmmasub(m: int, n: int, iter: int, epsimin: float, xval: np.ndarray, xmin: np.ndarray, 
-             xmax: np.ndarray, low: np.ndarray, upp: np.ndarray, raa0: float, raa: np.ndarray, 
-             f0val: np.ndarray, df0dx: np.ndarray, fval: np.ndarray, dfdx: np.ndarray, a0: float, 
-             a: np.ndarray, c: np.ndarray, d: np.ndarray, albefa: float = 0.1) -> Tuple[np.ndarray, np.ndarray, 
-            float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float]:
-    
+
+def gcmmasub(
+    m: int,
+    n: int,
+    iter: int,
+    epsimin: float,
+    xval: np.ndarray,
+    xmin: np.ndarray,
+    xmax: np.ndarray,
+    low: np.ndarray,
+    upp: np.ndarray,
+    raa0: float,
+    raa: np.ndarray,
+    f0val: np.ndarray,
+    df0dx: np.ndarray,
+    fval: np.ndarray,
+    dfdx: np.ndarray,
+    a0: float,
+    a: np.ndarray,
+    c: np.ndarray,
+    d: np.ndarray,
+    albefa: float = 0.1,
+) -> Tuple[
+    np.ndarray,
+    np.ndarray,
+    float,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    float,
+    float,
+]:
     """
     Solve the GCMMA (Generalized Convex Method of Moving Asymptotes) subproblem for optimization.
 
     Minimize:
         r0 + SUM[p0_j / (upp_j - x_j) + q0_j / (x_j - low_j)]
-    
+
     Subject to:
         r = fval - SUM[P_ij / (upp_j - x_j) + Q_ij / (x_j - low_j)]
         f0app = r0 + SUM[p0_j / (upp_j - x_j) + q0_j / (x_j - low_j)]
@@ -202,7 +266,7 @@ def gcmmasub(m: int, n: int, iter: int, epsimin: float, xval: np.ndarray, xmin: 
         a (np.ndarray): Coefficients for the constraints.
         c (np.ndarray): Coefficients for the linear terms in the objective function.
         d (np.ndarray): Coefficients for the quadratic terms in the objective function.
-        albefa (float): Factor to calculate the bounds alfa and beta. The default value is 0.1. 
+        albefa (float): Factor to calculate the bounds alfa and beta. The default value is 0.1.
 
     Returns:
         Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, float]:
@@ -218,7 +282,7 @@ def gcmmasub(m: int, n: int, iter: int, epsimin: float, xval: np.ndarray, xmin: 
             - f0app (float): Approximation of the objective function value.
             - fapp (float): Approximation of the constraint function values.
     """
-    
+
     eeen = np.ones((n, 1))
     zeron = np.zeros((n, 1))
 
@@ -253,9 +317,9 @@ def gcmmasub(m: int, n: int, iter: int, epsimin: float, xval: np.ndarray, xmin: 
     p0 *= ux2
     q0 *= xl2
     r0 = f0val - np.dot(p0.T, ux_inv) - np.dot(q0.T, xl_inv)
-    
-    P = np.zeros((m, n)) # To be made sparse
-    Q = np.zeros((m, n)) # To be made sparse
+
+    P = np.zeros((m, n))  # To be made sparse
+    Q = np.zeros((m, n))  # To be made sparse
     P = (diags(ux2.flatten(), 0).dot(P.T)).T
     Q = (diags(xl2.flatten(), 0).dot(Q.T)).T
     b = np.dot(P, ux_inv) + np.dot(Q, xl_inv) - fval
@@ -272,7 +336,9 @@ def gcmmasub(m: int, n: int, iter: int, epsimin: float, xval: np.ndarray, xmin: 
     b = -r
 
     # Solving the subproblem using the primal-dual Newton method
-    xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d)
+    xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
+        m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
+    )
 
     # Calculations of f0app and fapp
     ux1 = upp - xmma
@@ -285,17 +351,41 @@ def gcmmasub(m: int, n: int, iter: int, epsimin: float, xval: np.ndarray, xmin: 
     # Return values
     return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, f0app, fapp
 
-def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, alfa: np.ndarray, 
-            beta: np.ndarray, p0: np.ndarray, q0: np.ndarray, P: np.ndarray, Q: np.ndarray, 
-            a0: float, a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray) -> Tuple[np.ndarray, 
-            np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
-    
+
+def subsolv(
+    m: int,
+    n: int,
+    epsimin: float,
+    low: np.ndarray,
+    upp: np.ndarray,
+    alfa: np.ndarray,
+    beta: np.ndarray,
+    p0: np.ndarray,
+    q0: np.ndarray,
+    P: np.ndarray,
+    Q: np.ndarray,
+    a0: float,
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+    d: np.ndarray,
+) -> Tuple[
+    np.ndarray,
+    np.ndarray,
+    float,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    float,
+    np.ndarray,
+    np.ndarray,
+]:
     """
     Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
     Minimize:
         SUM[p0j/(uppj-xj) + q0j/(xj-lowj)] + a0*z + SUM[ci*yi + 0.5*di*(yi)^2]
-    
+
     Subject to:
         SUM[pij/(uppj-xj) + qij/(xj-lowj)] - ai*z - yi <= bi,
         alfa_j <= xj <= beta_j, yi >= 0, z >= 0.
@@ -369,7 +459,9 @@ def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, al
         rezet = zet * z - epsi
         res = lam * s - epsvecm
         residu1 = np.concatenate((rex, rey, rez), axis=0)
-        residu2 = np.concatenate((relam, rexsi, reeta, remu, rezet, res), axis=0)
+        residu2 = np.concatenate(
+            (relam, rexsi, reeta, remu, rezet, res), axis=0
+        )
         residu = np.concatenate((residu1, residu2), axis=0)
         residunorm = np.sqrt(np.dot(residu.T, residu).item())
         residumax = np.max(np.abs(residu))
@@ -392,7 +484,9 @@ def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, al
             plam = p0 + np.dot(P.T, lam)
             qlam = q0 + np.dot(Q.T, lam)
             gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-            GG = (diags(uxinv2.flatten(), 0).dot(P.T)).T - (diags(xlinv2.flatten(), 0).dot(Q.T)).T
+            GG = (diags(uxinv2.flatten(), 0).dot(P.T)).T - (
+                diags(xlinv2.flatten(), 0).dot(Q.T)
+            ).T
             dpsidx = plam / ux2 - qlam / xl2
             delx = dpsidx - epsvecn / (x - alfa) + epsvecn / (beta - x)
             dely = c + d * y - lam - epsvecm / y
@@ -410,20 +504,25 @@ def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, al
             if m < n:
                 blam = dellam + dely / diagy - np.dot(GG, (delx / diagx))
                 bb = np.concatenate((blam, delz), axis=0)
-                Alam = np.asarray(diags(diaglamyi.flatten(), 0) +
-                                  (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T))
+                Alam = np.asarray(
+                    diags(diaglamyi.flatten(), 0)
+                    + (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T)
+                )
                 AAr1 = np.concatenate((Alam, a), axis=1)
                 AAr2 = np.concatenate((a, -zet / z), axis=0).T
                 AA = np.concatenate((AAr1, AAr2), axis=0)
                 solut = solve(AA, bb)
                 dlam = solut[0:m]
-                dz = solut[m:m + 1]
+
+                dz = solut[m : m + 1]
                 dx = -delx / diagx - np.dot(GG.T, dlam) / diagx
             else:
                 diaglamyiinv = eem / diaglamyi
                 dellamyi = dellam + dely / diagy
-                Axx = np.asarray(diags(diagx.flatten(), 0) +
-                                 (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG))
+                Axx = np.asarray(
+                    diags(diagx.flatten(), 0)
+                    + (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG)
+                )
                 azz = zet / z + np.dot(a.T, (a / diaglamyi))
                 axz = np.dot(-GG.T, (a / diaglamyi))
                 bx = delx + np.dot(GG.T, (dellamyi / diaglamyi))
@@ -434,8 +533,12 @@ def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, al
                 bb = np.concatenate((-bx, -bz), axis=0)
                 solut = solve(AA, bb)
                 dx = solut[0:n]
-                dz = solut[n:n + 1]
-                dlam = np.dot(GG, dx) / diaglamyi - dz * (a / diaglamyi) + dellamyi / diaglamyi
+                dz = solut[n : n + 1]
+                dlam = (
+                    np.dot(GG, dx) / diaglamyi
+                    - dz * (a / diaglamyi)
+                    + dellamyi / diaglamyi
+                )
 
             dy = -dely / diagy + dlam / diagy
             dxsi = -xsi + epsvecn / (x - alfa) - (xsi * dx) / (x - alfa)
@@ -444,7 +547,9 @@ def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, al
             dzet = -zet + epsi / z - zet * dz / z
             ds = -s + epsvecm / lam - (s * dlam) / lam
             xx = np.concatenate((y, z, lam, xsi, eta, mu, zet, s), axis=0)
-            dxx = np.concatenate((dy, dz, dlam, dxsi, deta, dmu, dzet, ds), axis=0)
+            dxx = np.concatenate(
+                (dy, dz, dlam, dxsi, deta, dmu, dzet, ds), axis=0
+            )
 
             # Step length determination
             stepxx = -1.01 * dxx / xx
@@ -468,7 +573,7 @@ def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, al
             muold = mu.copy()
             zetold = zet.copy()
             sold = s.copy()
-            
+
             itto = 0
             resinew = 2 * residunorm
 
@@ -503,7 +608,9 @@ def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, al
                 rezet = zet * z - epsi
                 res = lam * s - epsvecm
                 residu1 = np.concatenate((rex, rey, rez), axis=0)
-                residu2 = np.concatenate((relam, rexsi, reeta, remu, rezet, res), axis=0)
+                residu2 = np.concatenate(
+                    (relam, rexsi, reeta, remu, rezet, res), axis=0
+                )
                 residu = np.concatenate((residu1, residu2), axis=0)
                 resinew = np.sqrt(np.dot(residu.T, residu))
                 steg = steg / 2
@@ -525,15 +632,33 @@ def subsolv(m: int, n: int, epsimin: float, low: np.ndarray, upp: np.ndarray, al
 
     return xmma, ymma, zmma, lamma, xsimma, etamma, mumma, zetmma, smma
 
-def kktcheck(m: int, n: int, x: np.ndarray, y: np.ndarray, z: float, lam: np.ndarray, xsi: np.ndarray,
-            eta: np.ndarray, mu: np.ndarray, zet: float, s: np.ndarray, xmin: np.ndarray, xmax: np.ndarray,
-            df0dx: np.ndarray, fval: np.ndarray, dfdx: np.ndarray, a0: float, a: np.ndarray, c: np.ndarray,
-            d: np.ndarray) -> Tuple[np.ndarray, float, float]:
-    
+
+def kktcheck(
+    m: int,
+    n: int,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: float,
+    lam: np.ndarray,
+    xsi: np.ndarray,
+    eta: np.ndarray,
+    mu: np.ndarray,
+    zet: float,
+    s: np.ndarray,
+    xmin: np.ndarray,
+    xmax: np.ndarray,
+    df0dx: np.ndarray,
+    fval: np.ndarray,
+    dfdx: np.ndarray,
+    a0: float,
+    a: np.ndarray,
+    c: np.ndarray,
+    d: np.ndarray,
+) -> Tuple[np.ndarray, float, float]:
     """
     Evaluate the residuals for the Karush-Kuhn-Tucker (KKT) conditions of a nonlinear programming problem.
 
-    The KKT conditions are necessary for optimality in constrained optimization problems. This function computes 
+    The KKT conditions are necessary for optimality in constrained optimization problems. This function computes
     the residuals for these conditions based on the current values of the variables, constraints, and Lagrange multipliers.
 
     Args:
@@ -575,26 +700,40 @@ def kktcheck(m: int, n: int, x: np.ndarray, y: np.ndarray, z: float, lam: np.nda
     remu = mu * y
     rezet = zet * z
     res = lam * s
-    
+
     # Concatenate residuals into a single vector
     residu1 = np.concatenate((rex, rey, rez), axis=0)
     residu2 = np.concatenate((relam, rexsi, reeta, remu, rezet, res), axis=0)
     residu = np.concatenate((residu1, residu2), axis=0)
-    
+
     # Calculate norm and maximum value of the residual vector
     residunorm = np.sqrt(np.dot(residu.T, residu).item())
     residumax = np.max(np.abs(residu))
-    
+
     return residu, residunorm, residumax
 
-def raaupdate(xmma: np.ndarray, xval: np.ndarray, xmin: np.ndarray, xmax: np.ndarray, low: np.ndarray, upp: np.ndarray, 
-              f0valnew: np.ndarray, fvalnew: np.ndarray, f0app: np.ndarray, fapp: np.ndarray, raa0: np.ndarray, 
-              raa: np.ndarray, raa0eps: np.ndarray, raaeps: np.ndarray,  epsimin: float) -> Tuple[np.ndarray, np.ndarray]:
-    
+
+def raaupdate(
+    xmma: np.ndarray,
+    xval: np.ndarray,
+    xmin: np.ndarray,
+    xmax: np.ndarray,
+    low: np.ndarray,
+    upp: np.ndarray,
+    f0valnew: np.ndarray,
+    fvalnew: np.ndarray,
+    f0app: np.ndarray,
+    fapp: np.ndarray,
+    raa0: np.ndarray,
+    raa: np.ndarray,
+    raa0eps: np.ndarray,
+    raaeps: np.ndarray,
+    epsimin: float,
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Update the parameters raa0 and raa during an inner iteration.
 
-    This function adjusts the values of raa0 and raa based on the current function values and 
+    This function adjusts the values of raa0 and raa based on the current function values and
     approximations. The updated values help in improving the accuracy of the function approximations.
 
     Parameters:
@@ -619,7 +758,7 @@ def raaupdate(xmma: np.ndarray, xval: np.ndarray, xmin: np.ndarray, xmax: np.nda
             - raa0 (np.ndarray): Updated values of the raa0 variable.
             - raa (np.ndarray): Updated values of the raa variable.
     """
-    
+
     raacofmin = 1e-12
     eeem = np.ones((raa.size, 1))
     eeen = np.ones((xmma.size, 1))
@@ -639,19 +778,25 @@ def raaupdate(xmma: np.ndarray, xval: np.ndarray, xmin: np.ndarray, xmax: np.nda
         zz0 = 1.1 * (raa0 + deltaraa0)
         zz0 = np.minimum(zz0, 10 * raa0)
         raa0 = zz0
-    
+
     fappe = fapp + 0.5 * epsimin * eeem
     fdelta = fvalnew - fappe
     deltaraa = (1 / raacof) * (fvalnew - fapp)
     zzz = 1.1 * (raa + deltaraa)
     zzz = np.minimum(zzz, 10 * raa)
     raa[np.where(fdelta > 0)] = zzz[np.where(fdelta > 0)]
-    
+
     return raa0, raa
 
 
-def concheck(m: int, epsimin: np.ndarray, f0app: np.ndarray, f0valnew: np.ndarray, fapp: np.ndarray, fvalnew: np.ndarray) -> int:
-    
+def concheck(
+    m: int,
+    epsimin: np.ndarray,
+    f0app: np.ndarray,
+    f0valnew: np.ndarray,
+    fapp: np.ndarray,
+    fvalnew: np.ndarray,
+) -> int:
     """
     Check if the current approximations are conservative.
 
@@ -670,26 +815,43 @@ def concheck(m: int, epsimin: np.ndarray, f0app: np.ndarray, f0valnew: np.ndarra
     Returns:
         int: A flag indicating if the approximations are conservative (1) or not (0).
     """
-    
+
     eeem = np.ones((m, 1))
     f0appe = f0app + epsimin
     fappe = fapp + epsimin * eeem
     arr1 = np.concatenate((f0appe.flatten(), fappe.flatten()))
     arr2 = np.concatenate((f0valnew.flatten(), fvalnew.flatten()))
-    
+
     if np.all(arr1 >= arr2):
         conserv = 1
     else:
         conserv = 0
-    
+
     return conserv
 
 
-def asymp(outeriter: int, n: int,xval: np.ndarray, xold1: np.ndarray, xold2: np.ndarray, xmin: np.ndarray,
-    xmax: np.ndarray, low: np.ndarray, upp: np.ndarray, raa0: float, raa: np.ndarray, raa0eps: float,
-    raaeps: float, df0dx: np.ndarray, dfdx: np.ndarray, asyinit: float = 0.5, asydecr: float = 0.7, 
-    asyincr: float = 1.2, asymin: float = 0.01, asymax: float = 10) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray]:
-    
+def asymp(
+    outeriter: int,
+    n: int,
+    xval: np.ndarray,
+    xold1: np.ndarray,
+    xold2: np.ndarray,
+    xmin: np.ndarray,
+    xmax: np.ndarray,
+    low: np.ndarray,
+    upp: np.ndarray,
+    raa0: float,
+    raa: np.ndarray,
+    raa0eps: float,
+    raaeps: float,
+    df0dx: np.ndarray,
+    dfdx: np.ndarray,
+    asyinit: float = 0.5,
+    asydecr: float = 0.7,
+    asyincr: float = 1.2,
+    asymin: float = 0.01,
+    asymax: float = 10,
+) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray]:
     """
     Calculate the parameters raa0, raa, low, and upp at the beginning of each outer iteration.
 
@@ -713,7 +875,7 @@ def asymp(outeriter: int, n: int,xval: np.ndarray, xold1: np.ndarray, xold2: np.
         asydecr (float): Factor by which the asymptotes distance is decreased. The default value is 0.7.
         asyincr (float): Factor by which the asymptotes distance is increased. The default value is 1.2.
         asymin (float): Factor to calculate the minimum asymptote distance. The default value is 0.01.
-        asymax (float): Factor to calculate the maximum asymptote distance. The default value is 10. 
+        asymax (float): Factor to calculate the maximum asymptote distance. The default value is 10.
 
     Returns:
         Tuple[np.ndarray, np.ndarray, float, np.ndarray]:
@@ -722,7 +884,7 @@ def asymp(outeriter: int, n: int,xval: np.ndarray, xold1: np.ndarray, xold2: np.
             - raa0 (float): Updated value of the raa0 parameter.
             - raa (np.ndarray): Updated values of the raa parameter.
     """
-    
+
     eeen = np.ones((n, 1))
     xmami = xmax - xmin
     xmamieps = 0.00001 * eeen
@@ -731,7 +893,7 @@ def asymp(outeriter: int, n: int,xval: np.ndarray, xold1: np.ndarray, xold2: np.
     raa0 = np.maximum(raa0eps, (0.1 / n) * raa0)
     raa = np.dot(np.abs(dfdx), xmami)
     raa = np.maximum(raaeps, (0.1 / n) * raa)
-    
+
     if outeriter <= 2:
         low = xval - asyinit * xmami
         upp = xval + asyinit * xmami
@@ -750,5 +912,5 @@ def asymp(outeriter: int, n: int,xval: np.ndarray, xold1: np.ndarray, xold2: np.
         low = np.minimum(low, lowmax)
         upp = np.minimum(upp, uppmax)
         upp = np.maximum(upp, uppmin)
-    
+
     return low, upp, raa0, raa
