@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from mma import kktcheck, mmasub
 
@@ -25,14 +26,16 @@ def toy(xval: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     return f0val, df0dx, fval, dfdx
 
 
-def minimize_toy():
+def minimize(x: np.ndarray, func: callable):
+    xval = x.copy()
+
     # Initial settings
-    m, n = 2, 3
+    m = 2
+    n = len(xval)
     eeen = np.ones((n, 1))
     eeem = np.ones((m, 1))
     zeron = np.zeros((n, 1))
     zerom = np.zeros((m, 1))
-    xval = np.array([[4, 3, 2]]).T
     xold1 = xval.copy()
     xold2 = xval.copy()
     xmin = zeron.copy()
@@ -53,15 +56,6 @@ def minimize_toy():
     outvector2s = []
     kktnorms = []
 
-    # Calculate function values and gradients
-    if outeriter == 0:
-        f0val, df0dx, fval, dfdx = toy(xval)
-        outvector1 = np.concatenate((np.array([f0val]), fval.flatten()))
-        outvector2 = xval.flatten()
-
-        outvector1s += [outvector1]
-        outvector2s += [outvector2]
-
     # The iterations start
     kktnorm = kkttol + 10
     outit = 0
@@ -69,6 +63,8 @@ def minimize_toy():
     while kktnorm > kkttol and outit < maxoutit:
         outit += 1
         outeriter += 1
+
+        f0val, df0dx, fval, dfdx = func(xval)
 
         # The MMA subproblem is solved at the point xval:
         xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = mmasub(
@@ -99,7 +95,7 @@ def minimize_toy():
         xval = xmma.copy()
 
         # Re-calculate function values, gradients
-        f0val, df0dx, fval, dfdx = toy(xval)
+        f0val, df0dx, fval, dfdx = func(xval)
 
         # The residual vector of the KKT conditions is calculated
         residu, kktnorm, residumax = kktcheck(
@@ -127,7 +123,6 @@ def minimize_toy():
 
         outvector1 = np.concatenate((np.array([f0val]), fval.flatten()))
         outvector2 = xval.flatten()
-
         outvector1s += [outvector1]
         outvector2s += [outvector2]
         kktnorms += [kktnorm]
@@ -135,11 +130,18 @@ def minimize_toy():
     return outvector1s, outvector2s, kktnorms
 
 
-def test_mma_toy():
-    outvector1s, outvector2s, kktnorms = minimize_toy()
-    ref_outvector1s = np.loadtxt("test/test_mma_toy_vec1.txt", delimiter=",")
-    ref_outvector2s = np.loadtxt("test/test_mma_toy_vec2.txt", delimiter=",")
-    ref_kktnorms = np.loadtxt("test/test_mma_toy_kkt.txt")
+@pytest.mark.parametrize(
+    "target_function, name, x", [(toy, "toy", np.array([[4, 3, 2]]).T)]
+)
+def test_mma_toy(target_function, name, x):
+    outvector1s, outvector2s, kktnorms = minimize(x, target_function)
+    ref_outvector1s = np.loadtxt(
+        f"test/test_mma_{name}_vec1.txt", delimiter=","
+    )
+    ref_outvector2s = np.loadtxt(
+        f"test/test_mma_{name}_vec2.txt", delimiter=","
+    )
+    ref_kktnorms = np.loadtxt(f"test/test_mma_{name}_kkt.txt")
 
     msg = "Unexpected outvector 1."
     assert np.allclose(ref_outvector1s, outvector1s), msg
