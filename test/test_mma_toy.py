@@ -26,23 +26,50 @@ def toy(xval: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     return f0val, df0dx, fval, dfdx
 
 
-def minimize(x: np.ndarray, func: callable):
+def beam(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
+    """The beam problem from the MMA paper of Svanberg.
+
+    Minimize:
+        0.0624*(x(1) + x(2) + x(3) + x(4) + x(5))
+
+    Subject to:
+        61/(x(1)^3) + 37/(x(2)^3) + 19/(x(3)^3) + 7/(x(4)^3) + 1/(x(5)^3) <= 1
+        1 <= x(j) <= 10, for j = 1, ..., 5.
+    """
+    nx = 5
+    eeen = np.ones((nx, 1))
+    c1 = 0.0624
+    c2 = 1
+    aaa = np.array([[61.0, 37.0, 19.0, 7.0, 1.0]]).T
+    xval2 = xval * xval
+    xval3 = xval2 * xval
+    xval4 = xval2 * xval2
+    xinv3 = eeen / xval3
+    xinv4 = eeen / xval4
+    f0val = c1 * np.dot(eeen.T, xval).item()
+    df0dx = c1 * eeen
+    fval = (np.dot(aaa.T, xinv3) - c2).item()
+    dfdx = -3 * (aaa * xinv4).T
+    return f0val, df0dx, fval, dfdx
+
+
+def minimize(x: np.ndarray, func: callable, lower_bound, upper_bound):
     xval = x.copy()
 
     # Count constriants.
     _, _, fval, _ = func(xval)
-    m = len(fval)
+    m = 1 if isinstance(fval, float) else len(fval)
     n = len(xval)
 
     # Initial settings
-    eeen = np.ones((n, 1))
     eeem = np.ones((m, 1))
-    zeron = np.zeros((n, 1))
     zerom = np.zeros((m, 1))
     xold1 = xval.copy()
     xold2 = xval.copy()
-    xmin = zeron.copy()
-    xmax = 5 * eeen
+
+    xmin = lower_bound * np.ones((n, 1))
+    xmax = upper_bound * np.ones((n, 1))
+
     low = xmin.copy()
     upp = xmax.copy()
     move = 1.0
@@ -124,7 +151,12 @@ def minimize(x: np.ndarray, func: callable):
             d,
         )
 
-        outvector1 = np.concatenate((np.array([f0val]), fval.flatten()))
+        # TODO: Align sizes and shapes between test problems.
+        if isinstance(fval, float):
+            outvector1 = np.array([f0val, fval])
+        else:
+            outvector1 = np.concatenate((np.array([f0val]), fval.flatten()))
+
         outvector2 = xval.flatten()
         outvector1s += [outvector1]
         outvector2s += [outvector2]
@@ -134,10 +166,16 @@ def minimize(x: np.ndarray, func: callable):
 
 
 @pytest.mark.parametrize(
-    "target_function, name, x", [(toy, "toy", np.array([[4, 3, 2]]).T)]
+    "target_function, name, x, lower_bound, upper_bound",
+    [
+        (toy, "toy", np.array([[4, 3, 2]]).T, 0, 5),
+        (beam, "beam", 5 * np.ones((5, 1)), 1, 10),
+    ],
 )
-def test_mma_toy(target_function, name, x):
-    outvector1s, outvector2s, kktnorms = minimize(x, target_function)
+def test_mma_toy(target_function, name, x, lower_bound, upper_bound):
+    outvector1s, outvector2s, kktnorms = minimize(
+        x, target_function, lower_bound, upper_bound
+    )
     ref_outvector1s = np.loadtxt(
         f"test/test_mma_{name}_vec1.txt", delimiter=","
     )
@@ -147,7 +185,7 @@ def test_mma_toy(target_function, name, x):
     ref_kktnorms = np.loadtxt(f"test/test_mma_{name}_kkt.txt")
 
     msg = "Unexpected outvector 1."
-    assert np.allclose(ref_outvector1s, outvector1s), msg
+    assert np.allclose(ref_outvector1s, np.array(outvector1s)), msg
     msg = "Unexpected outvector 2."
     assert np.allclose(ref_outvector2s, outvector2s), msg
     msg = "Unexpected kktnorms."
