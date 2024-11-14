@@ -1,4 +1,5 @@
 import numpy as np
+import pathlib
 import pytest
 
 from mma import kktcheck, mmasub
@@ -54,29 +55,28 @@ def beam(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
 
 
 def minimize(x: np.ndarray, func: callable, lower_bound, upper_bound):
-    xval = x.copy()
-
     # Count constriants.
-    _, _, fval, _ = func(xval)
+    _, _, fval, _ = func(x)
     m = 1 if isinstance(fval, float) else len(fval)
-    n = len(xval)
+    n = len(x)
 
-    # Initial settings
-    eeem = np.ones((m, 1))
-    zerom = np.zeros((m, 1))
+    # Initialisation.
+    xval = x.copy()
     xold1 = xval.copy()
     xold2 = xval.copy()
 
+    # Lower, upper bounds
     xmin = lower_bound * np.ones((n, 1))
     xmax = upper_bound * np.ones((n, 1))
-
     low = xmin.copy()
     upp = xmax.copy()
+
     move = 1.0
-    c = 1000 * eeem
-    d = eeem.copy()
+    c = 1000 * np.ones((m, 1))
+    d = np.ones((m, 1))
     a0 = 1
-    a = zerom.copy()
+    a = np.zeros((m, 1))
+
     outeriter = 0
     maxoutit = 11
     kkttol = 0
@@ -176,13 +176,16 @@ def test_mma_toy(target_function, name, x, lower_bound, upper_bound):
     outvector1s, outvector2s, kktnorms = minimize(
         x, target_function, lower_bound, upper_bound
     )
+
+    reference_dir = pathlib.Path("test/reference")
+
     ref_outvector1s = np.loadtxt(
-        f"test/reference/test_mma_{name}_vec1.txt", delimiter=","
+        reference_dir / f"test_mma_{name}_vec1.txt", delimiter=","
     )
     ref_outvector2s = np.loadtxt(
-        f"test/reference/test_mma_{name}_vec2.txt", delimiter=","
+        reference_dir / f"test_mma_{name}_vec2.txt", delimiter=","
     )
-    ref_kktnorms = np.loadtxt(f"test/reference/test_mma_{name}_kkt.txt")
+    ref_kktnorms = np.loadtxt(reference_dir / f"test_mma_{name}_kkt.txt")
 
     msg = "Unexpected outvector 1."
     assert np.allclose(ref_outvector1s, np.array(outvector1s)), msg
