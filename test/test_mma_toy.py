@@ -1,8 +1,27 @@
-import numpy as np
 import pathlib
+
+import numpy as np
 import pytest
 
 from mma import kktcheck, mmasub
+
+
+def funct(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
+    """Simple function with one design variable and no constraints:
+
+    Minimize:
+        (x - 50)^2 + 25
+
+    Subject to:
+        1 <= x <= 100
+    """
+    eeen = np.ones((len(xval), 1))
+    zeron = np.zeros((len(xval), 1))
+    f0val = (xval.item() - 50) ** 2 + 25
+    df0dx = eeen * (2 * (xval.item() - 50))
+    fval = 0.0
+    dfdx = zeron
+    return f0val, df0dx, fval, dfdx
 
 
 def toy(xval: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
@@ -54,7 +73,9 @@ def beam(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
     return f0val, df0dx, fval, dfdx
 
 
-def minimize(x: np.ndarray, func: callable, lower_bound, upper_bound):
+def minimize(
+    x: np.ndarray, func: callable, lower_bound, upper_bound, maxoutit
+):
     # Count constriants.
     _, _, fval, _ = func(x)
     m = 1 if isinstance(fval, float) else len(fval)
@@ -78,7 +99,6 @@ def minimize(x: np.ndarray, func: callable, lower_bound, upper_bound):
     a = np.zeros((m, 1))
 
     outeriter = 0
-    maxoutit = 11
     kkttol = 0
 
     # Test output
@@ -162,19 +182,20 @@ def minimize(x: np.ndarray, func: callable, lower_bound, upper_bound):
         outvector2s += [outvector2]
         kktnorms += [kktnorm]
 
-    return outvector1s, outvector2s, kktnorms
+    return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
 
 
 @pytest.mark.parametrize(
-    "target_function, name, x, lower_bound, upper_bound",
+    "target_function, name, x, lower_bound, upper_bound, maxoutit",
     [
-        (toy, "toy", np.array([[4, 3, 2]]).T, 0, 5),
-        (beam, "beam", 5 * np.ones((5, 1)), 1, 10),
+        (toy, "toy", np.array([[4, 3, 2]]).T, 0, 5, 11),
+        (beam, "beam", 5 * np.ones((5, 1)), 1, 10, 11),
+        (funct, "funct", np.ones((1, 1)), 1, 100, 20),
     ],
 )
-def test_mma_toy(target_function, name, x, lower_bound, upper_bound):
+def test_mma_toy(target_function, name, x, lower_bound, upper_bound, maxoutit):
     outvector1s, outvector2s, kktnorms = minimize(
-        x, target_function, lower_bound, upper_bound
+        x, target_function, lower_bound, upper_bound, maxoutit
     )
 
     reference_dir = pathlib.Path("test/reference")
@@ -185,11 +206,19 @@ def test_mma_toy(target_function, name, x, lower_bound, upper_bound):
     ref_outvector2s = np.loadtxt(
         reference_dir / f"test_mma_{name}_vec2.txt", delimiter=","
     )
+
+    # FIXME: Align reference shapes with mma output
+    if ref_outvector2s.ndim == 1:
+        ref_outvector2s = np.atleast_2d(ref_outvector2s).T
+
     ref_kktnorms = np.loadtxt(reference_dir / f"test_mma_{name}_kkt.txt")
 
     msg = "Unexpected outvector 1."
+    assert ref_outvector1s.shape == outvector1s.shape
     assert np.allclose(ref_outvector1s, np.array(outvector1s)), msg
     msg = "Unexpected outvector 2."
+    assert ref_outvector2s.shape == outvector2s.shape
     assert np.allclose(ref_outvector2s, outvector2s), msg
     msg = "Unexpected kktnorms."
+    assert ref_kktnorms.shape == kktnorms.shape
     assert np.allclose(ref_kktnorms, kktnorms), msg
