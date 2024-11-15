@@ -24,6 +24,27 @@ def funct(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
     return f0val, df0dx, fval, dfdx
 
 
+def funct2(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
+    """Simple function with two variables and one constraint:
+
+    Minimize:
+        (x1 - 50)^2 + (x2 - 25)^2 + 25
+
+    Subject to:
+        1 <= x(j) <= 100, for j = 1, 2
+    """
+    zeron = np.zeros((len(xval), 1))
+    f0val = (xval[0][0] - 50) ** 2 + (xval[1][0] - 25) ** 2 + 25
+    df0dx1 = 2 * (xval[0] - 50)
+    df0dx2 = 2 * (xval[1] - 25)
+    df0dx = zeron
+    df0dx[0] = df0dx1
+    df0dx[1] = df0dx2
+    fval = 0.0
+    dfdx = zeron.T
+    return f0val, df0dx, fval, dfdx
+
+
 def toy(xval: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     """A toy problem defined as:
 
@@ -74,7 +95,7 @@ def beam(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
 
 
 def minimize(
-    x: np.ndarray, func: callable, lower_bound, upper_bound, maxoutit
+    x: np.ndarray, func: callable, lower_bound, upper_bound, maxoutit, move
 ):
     # Count constriants.
     _, _, fval, _ = func(x)
@@ -92,7 +113,6 @@ def minimize(
     low = xmin.copy()
     upp = xmax.copy()
 
-    move = 1.0
     c = 1000 * np.ones((m, 1))
     d = np.ones((m, 1))
     a0 = 1
@@ -186,16 +206,20 @@ def minimize(
 
 
 @pytest.mark.parametrize(
-    "target_function, name, x, lower_bound, upper_bound, maxoutit",
+    "target_function, name, x, lower_bound, upper_bound, maxoutit, move",
     [
-        (toy, "toy", np.array([[4, 3, 2]]).T, 0, 5, 11),
-        (beam, "beam", 5 * np.ones((5, 1)), 1, 10, 11),
-        (funct, "funct", np.ones((1, 1)), 1, 100, 20),
+        (toy, "toy", np.array([[4, 3, 2]]).T, 0, 5, 11, 1),
+        (beam, "beam", 5 * np.ones((5, 1)), 1, 10, 11, 1),
+        (funct, "funct", np.ones((1, 1)), 1, 100, 20, 1),
+        (funct2, "funct2", np.ones((2, 1)), 1, 100, 20, 0.2),
     ],
+    ids=["toy", "beam", "funct", "funct2"],
 )
-def test_mma_toy(target_function, name, x, lower_bound, upper_bound, maxoutit):
+def test_mma_toy(
+    target_function, name, x, lower_bound, upper_bound, maxoutit, move
+):
     outvector1s, outvector2s, kktnorms = minimize(
-        x, target_function, lower_bound, upper_bound, maxoutit
+        x, target_function, lower_bound, upper_bound, maxoutit, move
     )
 
     reference_dir = pathlib.Path("test/reference")
