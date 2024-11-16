@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from scipy.linalg import solve
 
-from mma import kktcheck, mmasub
+from mma import mma
 
 
 def truss2(
@@ -183,129 +183,6 @@ def beam(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
     return f0val, df0dx, fval, dfdx
 
 
-def minimize(
-    x: np.ndarray,
-    func: callable,
-    lower_bound,
-    upper_bound,
-    maxoutit,
-    move,
-    d=None,
-    a=None,
-):
-    # Count constriants.
-    _, _, fval, _ = func(x)
-    m = 1 if isinstance(fval, float) else len(fval)
-    n = len(x)
-
-    # Initialisation.
-    xval = x.copy()
-    xold1 = xval.copy()
-    xold2 = xval.copy()
-
-    # Lower, upper bounds
-    xmin = lower_bound * np.ones((n, 1))
-    xmax = upper_bound * np.ones((n, 1))
-    low = xmin.copy()
-    upp = xmax.copy()
-
-    c = 1000 * np.ones((m, 1))
-
-    if d is None:
-        d = np.ones((m, 1))
-
-    a0 = 1
-
-    if a is None:
-        a = np.zeros((m, 1))
-
-    outeriter = 0
-    kkttol = 0
-
-    # Test output
-    outvector1s = []
-    outvector2s = []
-    kktnorms = []
-
-    # The iterations start
-    kktnorm = kkttol + 10
-    outit = 0
-
-    while kktnorm > kkttol and outit < maxoutit:
-        outit += 1
-        outeriter += 1
-
-        f0val, df0dx, fval, dfdx = func(xval)
-
-        # The MMA subproblem is solved at the point xval:
-        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = mmasub(
-            m,
-            n,
-            outeriter,
-            xval,
-            xmin,
-            xmax,
-            xold1,
-            xold2,
-            f0val,
-            df0dx,
-            fval,
-            dfdx,
-            low,
-            upp,
-            a0,
-            a,
-            c,
-            d,
-            move,
-        )
-
-        # Some vectors are updated:
-        xold2 = xold1.copy()
-        xold1 = xval.copy()
-        xval = xmma.copy()
-
-        # Re-calculate function values, gradients
-        f0val, df0dx, fval, dfdx = func(xval)
-
-        # The residual vector of the KKT conditions is calculated
-        residu, kktnorm, residumax = kktcheck(
-            m,
-            n,
-            xmma,
-            ymma,
-            zmma,
-            lam,
-            xsi,
-            eta,
-            mu,
-            zet,
-            s,
-            xmin,
-            xmax,
-            df0dx,
-            fval,
-            dfdx,
-            a0,
-            a,
-            c,
-            d,
-        )
-
-        # TODO: Align sizes and shapes between test problems.
-        if isinstance(fval, float):
-            outvector1 = np.array([f0val, fval])
-        else:
-            outvector1 = np.concatenate((np.array([f0val]), fval.flatten()))
-
-        outvector2 = xval.flatten()
-        outvector1s += [outvector1]
-        outvector2s += [outvector2]
-        kktnorms += [kktnorm]
-
-    return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
-
-
 @pytest.mark.parametrize(
     "target_function, name, x, lower_bound, upper_bound, maxoutit, move, a, d",
     [
@@ -330,7 +207,7 @@ def minimize(
 def test_mma_toy(
     target_function, name, x, lower_bound, upper_bound, maxoutit, move, a, d
 ):
-    outvector1s, outvector2s, kktnorms = minimize(
+    outvector1s, outvector2s, kktnorms = mma(
         x, target_function, lower_bound, upper_bound, maxoutit, move, a=a, d=d
     )
 
