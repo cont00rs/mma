@@ -38,9 +38,12 @@ def mma(
     upper_bound,
     maxoutit,
     move,
-    d=None,
 ):
-    """Driver of the MMA optimization."""
+    """Driver of the MMA optimization.
+
+    Reference material is available from:
+    - https://people.kth.se/~krille/mmagcmma.pdf.
+    """
     # Count constriants.
     _, _, fval, _ = func(x)
     m = 1 if isinstance(fval, float) else len(fval)
@@ -59,11 +62,13 @@ def mma(
 
     c = 1000 * np.ones((m, 1))
 
-    if d is None:
-        d = np.ones((m, 1))
-
     a0 = 1
+
+    # This implementations assumes `a_i = 0` and `d_i = 1`
+    # for all i to match the basic problem formulation as
+    # defined in equation (1.2) in mmagcmma.pdf.
     a = np.zeros((m, 1))
+    d = np.ones((m, 1))
 
     outeriter = 0
     kkttol = 0
