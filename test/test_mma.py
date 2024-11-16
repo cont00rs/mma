@@ -9,7 +9,7 @@ from mma import mma
 def funct(
     xval: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Simple function with one design variable and no constraints:
+    """Simple function with one design variable and bounds:
 
     Minimize:
         (x - 50)^2 + 25
@@ -27,7 +27,7 @@ def funct(
 def funct2(
     xval: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Simple function with two variables and one constraint:
+    """Simple function with two variables and bounds:
 
     Minimize:
         (x1 - 50)^2 + (x2 - 25)^2 + 25
@@ -35,14 +35,10 @@ def funct2(
     Subject to:
         1 <= x(j) <= 100, for j = 1, 2
     """
-    zeron = np.zeros((len(xval), 1))
     f0val = np.array([(xval[0][0] - 50) ** 2 + (xval[1][0] - 25) ** 2 + 25])
-    # FIXME: This does *not* properly copy zeron.
-    df0dx = zeron
-    df0dx[0] = 2 * (xval[0] - 50)
-    df0dx[1] = 2 * (xval[1] - 25)
-    fval = np.array([0.0])
-    dfdx = zeron.T
+    df0dx = np.array([2 * (xval[0] - 50), 2 * (xval[1] - 25)])
+    fval = np.zeros((1,))
+    dfdx = np.zeros_like(xval.T)
     return f0val, df0dx, fval, dfdx
 
 
