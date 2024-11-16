@@ -143,14 +143,9 @@ def mma(
             d,
         )
 
-        # TODO: Align sizes and shapes between test problems.
-        if isinstance(fval, float):
-            outvector1 = np.array([f0val, fval])
-        else:
-            outvector1 = np.concatenate((np.array([f0val]), fval.flatten()))
-
+        outvector1 = np.concatenate((f0val, fval))
         outvector2 = xval.flatten()
-        outvector1s += [outvector1]
+        outvector1s += [outvector1.flatten()]
         outvector2s += [outvector2]
         kktnorms += [kktnorm]
 

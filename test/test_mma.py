@@ -6,7 +6,9 @@ import pytest
 from mma import mma
 
 
-def funct(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
+def funct(
+    xval: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Simple function with one design variable and no constraints:
 
     Minimize:
@@ -15,16 +17,16 @@ def funct(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
     Subject to:
         1 <= x <= 100
     """
-    eeen = np.ones((len(xval), 1))
-    zeron = np.zeros((len(xval), 1))
-    f0val = (xval.item() - 50) ** 2 + 25
-    df0dx = eeen * (2 * (xval.item() - 50))
-    fval = 0.0
-    dfdx = zeron
+    f0val = (xval - 50) ** 2 + 25
+    df0dx = 2 * (xval - 50)
+    fval = np.zeros_like(xval)
+    dfdx = np.zeros_like(xval)
     return f0val, df0dx, fval, dfdx
 
 
-def funct2(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
+def funct2(
+    xval: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Simple function with two variables and one constraint:
 
     Minimize:
@@ -34,18 +36,19 @@ def funct2(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
         1 <= x(j) <= 100, for j = 1, 2
     """
     zeron = np.zeros((len(xval), 1))
-    f0val = (xval[0][0] - 50) ** 2 + (xval[1][0] - 25) ** 2 + 25
-    df0dx1 = 2 * (xval[0] - 50)
-    df0dx2 = 2 * (xval[1] - 25)
+    f0val = np.array([(xval[0][0] - 50) ** 2 + (xval[1][0] - 25) ** 2 + 25])
+    # FIXME: This does *not* properly copy zeron.
     df0dx = zeron
-    df0dx[0] = df0dx1
-    df0dx[1] = df0dx2
-    fval = 0.0
+    df0dx[0] = 2 * (xval[0] - 50)
+    df0dx[1] = 2 * (xval[1] - 25)
+    fval = np.array([0.0])
     dfdx = zeron.T
     return f0val, df0dx, fval, dfdx
 
 
-def toy(xval: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
+def toy(
+    xval: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """A toy problem defined as:
 
     Minimize:
@@ -56,10 +59,10 @@ def toy(xval: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
         (x(1)-3)^2 + (x(2)-4)^2 + (x(3)-3)^2 <= 9
         0 <= x(j) <= 5, for j=1,2,3.
     """
-    f0val = xval[0][0] ** 2 + xval[1][0] ** 2 + xval[2][0] ** 2
+    f0val = np.sum(xval**2, keepdims=True)
     df0dx = 2 * xval
-    fval1 = ((xval.T - np.array([[5, 2, 1]])) ** 2).sum() - 9
-    fval2 = ((xval.T - np.array([[3, 4, 3]])) ** 2).sum() - 9
+    fval1 = np.sum((xval.T - np.array([[5, 2, 1]])) ** 2) - 9
+    fval2 = np.sum((xval.T - np.array([[3, 4, 3]])) ** 2) - 9
     fval = np.array([[fval1, fval2]]).T
     dfdx1 = 2 * (xval.T - np.array([[5, 2, 1]]))
     dfdx2 = 2 * (xval.T - np.array([[3, 4, 3]]))
@@ -67,30 +70,26 @@ def toy(xval: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     return f0val, df0dx, fval, dfdx
 
 
-def beam(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
+def beam(
+    xval: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """The beam problem from the MMA paper of Svanberg.
 
     Minimize:
-        0.0624*(x(1) + x(2) + x(3) + x(4) + x(5))
+        c1 * (x(1) + x(2) + x(3) + x(4) + x(5))
+        c1 = 0.0624
 
     Subject to:
-        61/(x(1)^3) + 37/(x(2)^3) + 19/(x(3)^3) + 7/(x(4)^3) + 1/(x(5)^3) <= 1
+        a1/x(1)^3 + a2/x(2)^3 + a3/x(3)^3 + a4/x(4)^3 + a5/x(5)^3 <= 1
+        a1 = 61, a2 = 37, a3 = 19, a4 = 7, a5 = 1
         1 <= x(j) <= 10, for j = 1, ..., 5.
     """
-    nx = 5
-    eeen = np.ones((nx, 1))
     c1 = 0.0624
-    c2 = 1
-    aaa = np.array([[61.0, 37.0, 19.0, 7.0, 1.0]]).T
-    xval2 = xval * xval
-    xval3 = xval2 * xval
-    xval4 = xval2 * xval2
-    xinv3 = eeen / xval3
-    xinv4 = eeen / xval4
-    f0val = c1 * np.dot(eeen.T, xval).item()
-    df0dx = c1 * eeen
-    fval = (np.dot(aaa.T, xinv3) - c2).item()
-    dfdx = -3 * (aaa * xinv4).T
+    ai = np.array([[61.0, 37.0, 19.0, 7.0, 1.0]]).T
+    f0val = c1 * np.sum(xval, keepdims=True)
+    df0dx = c1 * np.ones_like(xval)
+    fval = np.sum(ai / xval**3, keepdims=True) - 1
+    dfdx = -3 * (ai / xval**4).T
     return f0val, df0dx, fval, dfdx
 
 
