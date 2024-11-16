@@ -28,6 +28,9 @@ uv run pytest
   [doi:10.1002/nme.1620240207](https://onlinelibrary.wiley.com/doi/abs/10.1002/nme.1620240207)
 * Svanberg, K. (n.d.). MMA and GCMMA – two methods for nonlinear optimization.
   Retrieved August 3, 2017 from  https://people.kth.se/~krille/mmagcmma.pdf
+* MMA and GCMMA documentation:
+  [mmagcmma](https://people.kth.se/~krille/mmagcmma.pdf). This PDF document is
+  replicated within this repository at [mmagcmma](./references/mmagcmma.pdf).
 
 ## License
 
