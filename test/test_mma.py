@@ -2,97 +2,8 @@ import pathlib
 
 import numpy as np
 import pytest
-from scipy.linalg import solve
 
 from mma import mma
-
-
-def truss2(
-    xval: np.ndarray,
-) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    This script solves the "three bar truss problem", formulated as follows:
-
-    Minimize:
-        max{f1(x), f2(x), f3(x)}
-
-    Subject to:
-        x1 + x2 + x3 <= V
-        0.001 <= xj <= V, for j = 1, 2, 3
-
-    Where:
-        - xj: Volume of the j-th bar
-        - fi(x): Compliance for the i-th load case, calculated as pi' * ui
-        - V: Upper bound on the total volume (V = 3)
-
-    Problem Description:
-        - Bar 1 connects nodes 1 and 4.
-        - Bar 2 connects nodes 2 and 4.
-        - Bar 3 connects nodes 3 and 4.
-        - Nodes coordinates:
-            Node 1: (-1, 0)
-            Node 2: (-1/sqrt(2), -1/sqrt(2))
-            Node 3: (0, -1)
-            Node 4: (0, 0)
-        - Nodes 1, 2, 3 are fixed.
-        - Load vectors at node 4:
-            Load vector p1 = (1, 0)'
-            Load vector p2 = (1, 1)'
-            Load vector p3 = (0, 1)'
-
-    Displacement vector ui is obtained from the system
-        K(x) * ui = pi,
-    where K(x) is the stiffness matrix and pi is the load vector.
-    The stiffness matrix is given by
-        K(x) = R * D(x) * R',
-    where D(x) is a diagonal matrix with diagonal elements x1, x2, x3.
-    The derivatives of the functions fi(x) are given by:
-        dfi/dxj = -(rj' * ui)^2,
-    where rj is the j-th column of the matrix R.
-
-    MMA Formulation:
-
-    Minimize:
-        z + 1000 * (y1 + y2 + y3 + y4)
-
-    Subject to:
-        f1(x) - z - y1 <= 0
-        f2(x) - z - y2 <= 0
-        f3(x) - z - y3 <= 0
-        x1 + x2 + x3 - 3 - y4 <= 0
-        0 <= xj <= 3, for j = 1, 2, 3
-        yi >= 0, for i = 1, 2, 3, 4
-        z >= 0
-    """
-
-    e = np.array([[1, 1, 1]]).T
-    f0val = 0
-    df0dx = 0 * e
-    D = np.diag(xval.flatten())
-    sq2 = 1.0 / np.sqrt(2.0)
-    R = np.array([[1, sq2, 0], [0, sq2, 1]])
-    p1 = np.array([[1, 0]]).T
-    p2 = np.array([[1, 1]]).T
-    p3 = np.array([[0, 1]]).T
-    K = np.dot(R, D).dot(R.T)
-    u1 = solve(K, p1)
-    u2 = solve(K, p2)
-    u3 = solve(K, p3)
-    compl1 = np.dot(p1.T, u1)
-    compl2 = np.dot(p2.T, u2)
-    compl3 = np.dot(p3.T, u3)
-    volume = np.dot(e.T, xval)
-    V = 3.0
-    vol1 = volume - V
-    fval = np.concatenate((compl1, compl2, compl3, vol1))
-    rtu1 = np.dot(R.T, u1)
-    rtu2 = np.dot(R.T, u2)
-    rtu3 = np.dot(R.T, u3)
-    dcompl1 = -rtu1 * rtu1
-    dcompl2 = -rtu2 * rtu2
-    dcompl3 = -rtu3 * rtu3
-    dfdx = np.concatenate((dcompl1.T, dcompl2.T, dcompl3.T, e.T))
-    return f0val, df0dx, fval, dfdx
 
 
 def funct(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
@@ -190,25 +101,14 @@ def beam(xval: np.ndarray) -> tuple[float, np.ndarray, float, np.ndarray]:
         (beam, "beam", 5 * np.ones((5, 1)), 1, 10, 11, 1, None, None),
         (funct, "funct", np.ones((1, 1)), 1, 100, 20, 1, None, None),
         (funct2, "funct2", np.ones((2, 1)), 1, 100, 20, 0.2, None, None),
-        (
-            truss2,
-            "truss",
-            np.ones((3, 1)),
-            0.001,
-            3,
-            6,
-            1.0,
-            np.array([[1, 1, 1, 0]]).T,
-            np.zeros((4, 1)),
-        ),
     ],
-    ids=["toy", "beam", "funct", "funct2", "truss"],
+    ids=["toy", "beam", "funct", "funct2"],
 )
 def test_mma_toy(
     target_function, name, x, lower_bound, upper_bound, maxoutit, move, a, d
 ):
     outvector1s, outvector2s, kktnorms = mma(
-        x, target_function, lower_bound, upper_bound, maxoutit, move, a=a, d=d
+        x, target_function, lower_bound, upper_bound, maxoutit, move, d=d
     )
 
     reference_dir = pathlib.Path("test/reference")

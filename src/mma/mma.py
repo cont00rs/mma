@@ -39,7 +39,6 @@ def mma(
     maxoutit,
     move,
     d=None,
-    a=None,
 ):
     """Driver of the MMA optimization."""
     # Count constriants.
@@ -64,9 +63,7 @@ def mma(
         d = np.ones((m, 1))
 
     a0 = 1
-
-    if a is None:
-        a = np.zeros((m, 1))
+    a = np.zeros((m, 1))
 
     outeriter = 0
     kkttol = 0
