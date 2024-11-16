@@ -1,7 +1,3 @@
-from .mma import (
-    kktcheck,
-    mmasub,
-    subsolv,
-)
+from .mma import mma
 
-__all__ = [mmasub, subsolv, kktcheck]
+__all__ = [mma]

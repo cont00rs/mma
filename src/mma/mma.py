@@ -31,6 +31,127 @@ from scipy.linalg import solve  # or use numpy: from numpy.linalg import solve
 from scipy.sparse import diags  # or use numpy: from numpy import diag as diags
 
 
+def mma(
+    x: np.ndarray,
+    func: callable,
+    lower_bound,
+    upper_bound,
+    maxoutit,
+    move,
+):
+    """Driver of the MMA optimization.
+
+    Reference material is available from:
+    - https://people.kth.se/~krille/mmagcmma.pdf.
+    """
+    # Count constriants.
+    _, _, fval, _ = func(x)
+    m = 1 if isinstance(fval, float) else len(fval)
+    n = len(x)
+
+    # Initialisation.
+    xval = x.copy()
+    xold1 = xval.copy()
+    xold2 = xval.copy()
+
+    # Lower, upper bounds
+    xmin = lower_bound * np.ones((n, 1))
+    xmax = upper_bound * np.ones((n, 1))
+    low = xmin.copy()
+    upp = xmax.copy()
+
+    c = 1000 * np.ones((m, 1))
+
+    a0 = 1
+
+    # This implementations assumes `a_i = 0` and `d_i = 1`
+    # for all i to match the basic problem formulation as
+    # defined in equation (1.2) in mmagcmma.pdf.
+    a = np.zeros((m, 1))
+    d = np.ones((m, 1))
+
+    outeriter = 0
+    kkttol = 0
+
+    # Test output
+    outvector1s = []
+    outvector2s = []
+    kktnorms = []
+
+    # The iterations start
+    kktnorm = kkttol + 10
+    outit = 0
+
+    while kktnorm > kkttol and outit < maxoutit:
+        outit += 1
+        outeriter += 1
+
+        f0val, df0dx, fval, dfdx = func(xval)
+
+        # The MMA subproblem is solved at the point xval:
+        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = mmasub(
+            m,
+            n,
+            outeriter,
+            xval,
+            xmin,
+            xmax,
+            xold1,
+            xold2,
+            f0val,
+            df0dx,
+            fval,
+            dfdx,
+            low,
+            upp,
+            a0,
+            a,
+            c,
+            d,
+            move,
+        )
+
+        # Some vectors are updated:
+        xold2 = xold1.copy()
+        xold1 = xval.copy()
+        xval = xmma.copy()
+
+        # Re-calculate function values, gradients
+        f0val, df0dx, fval, dfdx = func(xval)
+
+        # The residual vector of the KKT conditions is calculated
+        residu, kktnorm, residumax = kktcheck(
+            m,
+            n,
+            xmma,
+            ymma,
+            zmma,
+            lam,
+            xsi,
+            eta,
+            mu,
+            zet,
+            s,
+            xmin,
+            xmax,
+            df0dx,
+            fval,
+            dfdx,
+            a0,
+            a,
+            c,
+            d,
+        )
+
+        outvector1 = np.concatenate((f0val, fval))
+        outvector2 = xval.flatten()
+        outvector1s += [outvector1.flatten()]
+        outvector2s += [outvector2]
+        kktnorms += [kktnorm]
+
+    return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
+
+
 def mmasub(
     m: int,
     n: int,
