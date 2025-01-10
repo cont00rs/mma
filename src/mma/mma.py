@@ -91,7 +91,6 @@ def mma(
     a = np.zeros((m, 1))
     d = np.ones((m, 1))
 
-    outeriter = 0
     kkttol = 0
 
     # Test output
@@ -102,34 +101,35 @@ def mma(
     # The iterations start
     kktnorm = kkttol + 10
 
+    subproblem = SubProblem()
+
     for _ in range(iteration_count):
         if kktnorm <= kkttol:
             break
 
-        outeriter += 1
-
         f0val, df0dx, fval, dfdx = func(xval)
 
         # The MMA subproblem is solved at the point xval:
-        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = mmasub(
-            m,
-            n,
-            outeriter,
-            xval,
-            bounds,
-            xold1,
-            xold2,
-            f0val,
-            df0dx,
-            fval,
-            dfdx,
-            low,
-            upp,
-            a0,
-            a,
-            c,
-            d,
-            move_limit,
+        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = (
+            subproblem.mmasub(
+                m,
+                n,
+                xval,
+                bounds,
+                xold1,
+                xold2,
+                f0val,
+                df0dx,
+                fval,
+                dfdx,
+                low,
+                upp,
+                a0,
+                a,
+                c,
+                d,
+                move_limit,
+            )
         )
 
         # Some vectors are updated:
@@ -177,169 +177,174 @@ def mma(
     return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
 
 
-def mmasub(
-    m: int,
-    n: int,
-    iter: int,
-    xval: np.ndarray,
-    bounds: Bounds,
-    xold1: np.ndarray,
-    xold2: np.ndarray,
-    f0val: float,
-    df0dx: np.ndarray,
-    fval: np.ndarray,
-    dfdx: np.ndarray,
-    low: np.ndarray,
-    upp: np.ndarray,
-    a0: float,
-    a: np.ndarray,
-    c: np.ndarray,
-    d: np.ndarray,
-    move_limit: float,
-    asyinit: float = 0.5,
-    asydecr: float = 0.7,
-    asyincr: float = 1.2,
-    asymin: float = 0.01,
-    asymax: float = 10,
-    raa0: float = 0.00001,
-    albefa: float = 0.1,
-) -> Tuple[
-    np.ndarray,
-    np.ndarray,
-    float,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    float,
-    np.ndarray,
-    np.ndarray,
-]:
-    """
-    Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
+class SubProblem:
+    def __init__(self):
+        self.iteration: int = 0
 
-    Minimize:
-        f_0(x) + a_0 * z + sum(c_i * y_i + 0.5 * d_i * (y_i)^2)
+    def mmasub(
+        self,
+        m: int,
+        n: int,
+        xval: np.ndarray,
+        bounds: Bounds,
+        xold1: np.ndarray,
+        xold2: np.ndarray,
+        f0val: float,
+        df0dx: np.ndarray,
+        fval: np.ndarray,
+        dfdx: np.ndarray,
+        low: np.ndarray,
+        upp: np.ndarray,
+        a0: float,
+        a: np.ndarray,
+        c: np.ndarray,
+        d: np.ndarray,
+        move_limit: float,
+        asyinit: float = 0.5,
+        asydecr: float = 0.7,
+        asyincr: float = 1.2,
+        asymin: float = 0.01,
+        asymax: float = 10,
+        raa0: float = 0.00001,
+        albefa: float = 0.1,
+    ) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        float,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        float,
+        np.ndarray,
+        np.ndarray,
+    ]:
+        """
+        Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
-    Subject to:
-        f_i(x) - a_i * z - y_i <= 0,    i = 1,...,m
-        xmin_j <= x_j <= xmax_j,        j = 1,...,n
-        z >= 0, y_i >= 0,               i = 1,...,m
+        Minimize:
+            f_0(x) + a_0 * z + sum(c_i * y_i + 0.5 * d_i * (y_i)^2)
 
-    Args:
-        m (int): Number of constraints.
-        n (int): Number of variables.
-        iter (int): Current iteration number (1 for the first call to mmasub).
-        xval (np.ndarray): Current values of the design variables.
-        bounds (Bounds): Lower (xmin_j) and upper (xmax_j) bounds of the design variables.
-        xold1 (np.ndarray): Design variables from one iteration ago (provided that iter > 1).
-        xold2 (np.ndarray): Design variables from two iterations ago (provided that iter > 2).
-        f0val (float): Objective function value at xval.
-        df0dx (np.ndarray): Gradient of the objective function at xval.
-        fval (np.ndarray): Constraint function values at xval.
-        dfdx (np.ndarray): Gradient of the constraint functions at xval.
-        low (np.ndarray): Lower bounds for the variables from the previous iteration (provided that iter > 1).
-        upp (np.ndarray): Upper bounds for the variables from the previous iteration (provided that iter > 1).
-        a0 (float): Constant in the term a_0 * z.
-        a (np.ndarray): Coefficients for the term a_i * z.
-        c (np.ndarray): Coefficients for the term c_i * y_i.
-        d (np.ndarray): Coefficients for the term 0.5 * d_i * (y_i)^2.
-        move_limit (float): Move limit for the design variables.
-        asyinit (float): Factor to calculate the initial distance of the asymptotes. The default value is 0.5.
-        asydecr (float): Factor by which the asymptotes distance is decreased. The default value is 0.7.
-        asyincr (float): Factor by which the asymptotes distance is increased. The default value is 1.2.
-        asymin (float): Factor to calculate the minimum distance of the asymptotes. The default value is 0.01.
-        asymax (float): Factor to calculate the maximum distance of the asymptotes. The default value is 10.
-        raa0 (float): Parameter representing the function approximation's accuracy. The default value is 0.00001.
-        albefa (float): Factor to calculate the bounds alfa and beta. The default value is 0.1.
+        Subject to:
+            f_i(x) - a_i * z - y_i <= 0,    i = 1,...,m
+            xmin_j <= x_j <= xmax_j,        j = 1,...,n
+            z >= 0, y_i >= 0,               i = 1,...,m
 
-    Returns:
-        Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
-            - xmma (np.ndarray): Optimal values of the design variables.
-            - ymma (np.ndarray): Optimal values of the slack variables for constraints.
-            - zmma (float): Optimal value of the regularization variable z.
-            - lam (np.ndarray): Lagrange multipliers for the constraints.
-            - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
-            - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
-            - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
-            - zet (float): Lagrange multiplier for the regularization term z.
-            - s (np.ndarray): Slack variables for the general constraints.
-            - low (np.ndarray): Updated lower bounds for the design variables.
-            - upp (np.ndarray): Updated upper bounds for the design variables.
-    """
+        Args:
+            m (int): Number of constraints.
+            n (int): Number of variables.
+            xval (np.ndarray): Current values of the design variables.
+            bounds (Bounds): Lower (xmin_j) and upper (xmax_j) bounds of the design variables.
+            xold1 (np.ndarray): Design variables from one iteration ago (provided that iter > 1).
+            xold2 (np.ndarray): Design variables from two iterations ago (provided that iter > 2).
+            f0val (float): Objective function value at xval.
+            df0dx (np.ndarray): Gradient of the objective function at xval.
+            fval (np.ndarray): Constraint function values at xval.
+            dfdx (np.ndarray): Gradient of the constraint functions at xval.
+            low (np.ndarray): Lower bounds for the variables from the previous iteration (provided that iter > 1).
+            upp (np.ndarray): Upper bounds for the variables from the previous iteration (provided that iter > 1).
+            a0 (float): Constant in the term a_0 * z.
+            a (np.ndarray): Coefficients for the term a_i * z.
+            c (np.ndarray): Coefficients for the term c_i * y_i.
+            d (np.ndarray): Coefficients for the term 0.5 * d_i * (y_i)^2.
+            move_limit (float): Move limit for the design variables.
+            asyinit (float): Factor to calculate the initial distance of the asymptotes. The default value is 0.5.
+            asydecr (float): Factor by which the asymptotes distance is decreased. The default value is 0.7.
+            asyincr (float): Factor by which the asymptotes distance is increased. The default value is 1.2.
+            asymin (float): Factor to calculate the minimum distance of the asymptotes. The default value is 0.01.
+            asymax (float): Factor to calculate the maximum distance of the asymptotes. The default value is 10.
+            raa0 (float): Parameter representing the function approximation's accuracy. The default value is 0.00001.
+            albefa (float): Factor to calculate the bounds alfa and beta. The default value is 0.1.
 
-    epsimin = 0.0000001
-    eeen = np.ones((n, 1), dtype=float)
-    eeem = np.ones((m, 1), dtype=float)
-    zeron = np.zeros((n, 1), dtype=float)
+        Returns:
+            Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
+                - xmma (np.ndarray): Optimal values of the design variables.
+                - ymma (np.ndarray): Optimal values of the slack variables for constraints.
+                - zmma (float): Optimal value of the regularization variable z.
+                - lam (np.ndarray): Lagrange multipliers for the constraints.
+                - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
+                - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
+                - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
+                - zet (float): Lagrange multiplier for the regularization term z.
+                - s (np.ndarray): Slack variables for the general constraints.
+                - low (np.ndarray): Updated lower bounds for the design variables.
+                - upp (np.ndarray): Updated upper bounds for the design variables.
+        """
 
-    # Calculation of the asymptotes low and upp
-    if iter <= 2:
-        low = xval - asyinit * bounds.delta()
-        upp = xval + asyinit * bounds.delta()
-    else:
-        zzz = (xval - xold1) * (xold1 - xold2)
-        factor = eeen.copy()
-        factor[zzz > 0] = asyincr
-        factor[zzz < 0] = asydecr
-        low = xval - factor * (xold1 - low)
-        upp = xval + factor * (upp - xold1)
-        lowmin = xval - asymax * bounds.delta()
-        lowmax = xval - asymin * bounds.delta()
-        uppmin = xval + asymin * bounds.delta()
-        uppmax = xval + asymax * bounds.delta()
-        low = np.maximum(low, lowmin)
-        low = np.minimum(low, lowmax)
-        upp = np.minimum(upp, uppmax)
-        upp = np.maximum(upp, uppmin)
+        epsimin = 0.0000001
+        eeen = np.ones((n, 1), dtype=float)
+        eeem = np.ones((m, 1), dtype=float)
+        zeron = np.zeros((n, 1), dtype=float)
 
-    # Calculation of the bounds alfa and beta
-    zzz1 = low + albefa * (xval - low)
-    zzz2 = xval - move_limit * bounds.delta()
-    zzz = np.maximum(zzz1, zzz2)
-    alfa = np.maximum(zzz, bounds.lb)
-    zzz1 = upp - albefa * (upp - xval)
-    zzz2 = xval + move_limit * bounds.delta()
-    zzz = np.minimum(zzz1, zzz2)
-    beta = np.minimum(zzz, bounds.ub)
+        self.iteration += 1
 
-    # Calculations of p0, q0, P, Q and b
-    xmami_eps = 0.00001 * eeen
-    xmami = np.maximum(bounds.delta(), xmami_eps)
-    xmami_inv = eeen / xmami
-    ux1 = upp - xval
-    ux2 = ux1 * ux1
-    xl1 = xval - low
-    xl2 = xl1 * xl1
-    ux_inv = eeen / ux1
-    xl_inv = eeen / xl1
-    p0 = zeron.copy()
-    q0 = zeron.copy()
-    p0 = np.maximum(df0dx, 0)
-    q0 = np.maximum(-df0dx, 0)
-    pq0 = 0.001 * (p0 + q0) + raa0 * xmami_inv
-    p0 = p0 + pq0
-    q0 = q0 + pq0
-    p0 = p0 * ux2
-    q0 = q0 * xl2
-    P = np.zeros((m, n), dtype=float)
-    Q = np.zeros((m, n), dtype=float)
-    P = np.maximum(dfdx, 0)
-    Q = np.maximum(-dfdx, 0)
-    PQ = 0.001 * (P + Q) + raa0 * np.dot(eeem, xmami_inv.T)
-    P = P + PQ
-    Q = Q + PQ
-    P = (diags(ux2.flatten(), 0).dot(P.T)).T
-    Q = (diags(xl2.flatten(), 0).dot(Q.T)).T
-    b = np.dot(P, ux_inv) + np.dot(Q, xl_inv) - fval
+        # Calculation of the asymptotes low and upp
+        if self.iteration <= 2:
+            low = xval - asyinit * bounds.delta()
+            upp = xval + asyinit * bounds.delta()
+        else:
+            zzz = (xval - xold1) * (xold1 - xold2)
+            factor = eeen.copy()
+            factor[zzz > 0] = asyincr
+            factor[zzz < 0] = asydecr
+            low = xval - factor * (xold1 - low)
+            upp = xval + factor * (upp - xold1)
+            lowmin = xval - asymax * bounds.delta()
+            lowmax = xval - asymin * bounds.delta()
+            uppmin = xval + asymin * bounds.delta()
+            uppmax = xval + asymax * bounds.delta()
+            low = np.maximum(low, lowmin)
+            low = np.minimum(low, lowmax)
+            upp = np.minimum(upp, uppmax)
+            upp = np.maximum(upp, uppmin)
 
-    # Solving the subproblem using the primal-dual Newton method
-    xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
-        m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
-    )
+        # Calculation of the bounds alfa and beta
+        zzz1 = low + albefa * (xval - low)
+        zzz2 = xval - move_limit * bounds.delta()
+        zzz = np.maximum(zzz1, zzz2)
+        alfa = np.maximum(zzz, bounds.lb)
+        zzz1 = upp - albefa * (upp - xval)
+        zzz2 = xval + move_limit * bounds.delta()
+        zzz = np.minimum(zzz1, zzz2)
+        beta = np.minimum(zzz, bounds.ub)
 
-    # Return values
-    return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
+        # Calculations of p0, q0, P, Q and b
+        xmami_eps = 0.00001 * eeen
+        xmami = np.maximum(bounds.delta(), xmami_eps)
+        xmami_inv = eeen / xmami
+        ux1 = upp - xval
+        ux2 = ux1 * ux1
+        xl1 = xval - low
+        xl2 = xl1 * xl1
+        ux_inv = eeen / ux1
+        xl_inv = eeen / xl1
+        p0 = zeron.copy()
+        q0 = zeron.copy()
+        p0 = np.maximum(df0dx, 0)
+        q0 = np.maximum(-df0dx, 0)
+        pq0 = 0.001 * (p0 + q0) + raa0 * xmami_inv
+        p0 = p0 + pq0
+        q0 = q0 + pq0
+        p0 = p0 * ux2
+        q0 = q0 * xl2
+        P = np.zeros((m, n), dtype=float)
+        Q = np.zeros((m, n), dtype=float)
+        P = np.maximum(dfdx, 0)
+        Q = np.maximum(-dfdx, 0)
+        PQ = 0.001 * (P + Q) + raa0 * np.dot(eeem, xmami_inv.T)
+        P = P + PQ
+        Q = Q + PQ
+        P = (diags(ux2.flatten(), 0).dot(P.T)).T
+        Q = (diags(xl2.flatten(), 0).dot(Q.T)).T
+        b = np.dot(P, ux_inv) + np.dot(Q, xl_inv) - fval
+
+        # Solving the subproblem using the primal-dual Newton method
+        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
+            m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
+        )
+
+        # Return values
+        return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
 
 
 def subsolv(
