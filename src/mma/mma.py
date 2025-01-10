@@ -24,6 +24,7 @@ according to the specific problem being solved.
 # Loading modules
 from __future__ import division
 
+from dataclasses import dataclass
 from typing import Tuple
 
 import numpy as np
@@ -53,6 +54,30 @@ class Bounds:
 
     def delta(self):
         return self.ub - self.lb
+
+
+@dataclass
+class Options:
+    """
+    MMA Algorithm options
+
+    Attributes:
+        asyinit: Factor to calculate the initial distance of the asymptotes.
+        asydecr: Factor by which the asymptotes distance is decreased.
+        asyincr: Factor by which the asymptotes distance is increased.
+        asymin: Factor to calculate the minimum distance of the asymptotes.
+        asymax: Factor to calculate the maximum distance of the asymptotes.
+        raa0: Parameter representing the function approximation's accuracy.
+        albefa: Factor to calculate the bounds alfa and beta..
+    """
+
+    asyinit: float = 0.5
+    asydecr: float = 0.7
+    asyincr: float = 1.2
+    asymin: float = 0.01
+    asymax: float = 10
+    raa0: float = 0.00001
+    albefa: float = 0.1
 
 
 def mma(
@@ -99,7 +124,9 @@ def mma(
     # The iterations start
     kktnorm = kkttol + 10
 
-    subproblem = SubProblem()
+    # FIXME: Should c, a0, a, d also be considered "options"?
+    options = Options()
+    subproblem = SubProblem(options)
 
     for _ in range(iteration_count):
         if kktnorm <= kkttol:
@@ -172,7 +199,9 @@ def mma(
 
 
 class SubProblem:
-    def __init__(self):
+    def __init__(self, options: Options):
+        self.options = options
+
         # xold1 (np.ndarray): Design variables from one iteration ago.
         self.xold1 = None
         # xold2 (np.ndarray): Design variables from two iterations ago.
@@ -195,13 +224,6 @@ class SubProblem:
         c: np.ndarray,
         d: np.ndarray,
         move_limit: float,
-        asyinit: float = 0.5,
-        asydecr: float = 0.7,
-        asyincr: float = 1.2,
-        asymin: float = 0.01,
-        asymax: float = 10,
-        raa0: float = 0.00001,
-        albefa: float = 0.1,
     ) -> Tuple[
         np.ndarray,
         np.ndarray,
@@ -241,13 +263,6 @@ class SubProblem:
             c (np.ndarray): Coefficients for the term c_i * y_i.
             d (np.ndarray): Coefficients for the term 0.5 * d_i * (y_i)^2.
             move_limit (float): Move limit for the design variables.
-            asyinit (float): Factor to calculate the initial distance of the asymptotes. The default value is 0.5.
-            asydecr (float): Factor by which the asymptotes distance is decreased. The default value is 0.7.
-            asyincr (float): Factor by which the asymptotes distance is increased. The default value is 1.2.
-            asymin (float): Factor to calculate the minimum distance of the asymptotes. The default value is 0.01.
-            asymax (float): Factor to calculate the maximum distance of the asymptotes. The default value is 10.
-            raa0 (float): Parameter representing the function approximation's accuracy. The default value is 0.00001.
-            albefa (float): Factor to calculate the bounds alfa and beta. The default value is 0.1.
 
         Returns:
             Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
@@ -271,30 +286,30 @@ class SubProblem:
 
         # Calculation of the asymptotes low and upp
         if self.xold1 is None or self.xold2 is None:
-            low = xval - asyinit * bounds.delta()
-            upp = xval + asyinit * bounds.delta()
+            low = xval - self.options.asyinit * bounds.delta()
+            upp = xval + self.options.asyinit * bounds.delta()
         else:
             zzz = (xval - self.xold1) * (self.xold1 - self.xold2)
             factor = eeen.copy()
-            factor[zzz > 0] = asyincr
-            factor[zzz < 0] = asydecr
+            factor[zzz > 0] = self.options.asyincr
+            factor[zzz < 0] = self.options.asydecr
             low = xval - factor * (self.xold1 - low)
             upp = xval + factor * (upp - self.xold1)
-            lowmin = xval - asymax * bounds.delta()
-            lowmax = xval - asymin * bounds.delta()
-            uppmin = xval + asymin * bounds.delta()
-            uppmax = xval + asymax * bounds.delta()
+            lowmin = xval - self.options.asymax * bounds.delta()
+            lowmax = xval - self.options.asymin * bounds.delta()
+            uppmin = xval + self.options.asymin * bounds.delta()
+            uppmax = xval + self.options.asymax * bounds.delta()
             low = np.maximum(low, lowmin)
             low = np.minimum(low, lowmax)
             upp = np.minimum(upp, uppmax)
             upp = np.maximum(upp, uppmin)
 
         # Calculation of the bounds alfa and beta
-        zzz1 = low + albefa * (xval - low)
+        zzz1 = low + self.options.albefa * (xval - low)
         zzz2 = xval - move_limit * bounds.delta()
         zzz = np.maximum(zzz1, zzz2)
         alfa = np.maximum(zzz, bounds.lb)
-        zzz1 = upp - albefa * (upp - xval)
+        zzz1 = upp - self.options.albefa * (upp - xval)
         zzz2 = xval + move_limit * bounds.delta()
         zzz = np.minimum(zzz1, zzz2)
         beta = np.minimum(zzz, bounds.ub)
@@ -313,7 +328,7 @@ class SubProblem:
         q0 = zeron.copy()
         p0 = np.maximum(df0dx, 0)
         q0 = np.maximum(-df0dx, 0)
-        pq0 = 0.001 * (p0 + q0) + raa0 * xmami_inv
+        pq0 = 0.001 * (p0 + q0) + self.options.raa0 * xmami_inv
         p0 = p0 + pq0
         q0 = q0 + pq0
         p0 = p0 * ux2
@@ -322,7 +337,7 @@ class SubProblem:
         Q = np.zeros((m, n), dtype=float)
         P = np.maximum(dfdx, 0)
         Q = np.maximum(-dfdx, 0)
-        PQ = 0.001 * (P + Q) + raa0 * np.dot(eeem, xmami_inv.T)
+        PQ = 0.001 * (P + Q) + self.options.raa0 * np.dot(eeem, xmami_inv.T)
         P = P + PQ
         Q = Q + PQ
         P = (diags(ux2.flatten(), 0).dot(P.T)).T
