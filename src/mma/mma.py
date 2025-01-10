@@ -45,6 +45,15 @@ class Bounds:
         self.lb = np.atleast_1d(lb)
         self.ub = np.atleast_1d(ub)
 
+    def lower(self):
+        return self.lb
+
+    def upper(self):
+        return self.ub
+
+    def delta(self):
+        return self.ub - self.lb
+
 
 def mma(
     x: np.ndarray,
@@ -69,10 +78,8 @@ def mma(
     xold2 = xval.copy()
 
     # Lower, upper bounds
-    xmin = bounds.lb
-    xmax = bounds.ub
-    low = xmin.copy()
-    upp = xmax.copy()
+    low = bounds.lb.copy()
+    upp = bounds.ub.copy()
 
     c = 1000 * np.ones((m, 1))
 
@@ -108,8 +115,7 @@ def mma(
             n,
             outeriter,
             xval,
-            xmin,
-            xmax,
+            bounds,
             xold1,
             xold2,
             f0val,
@@ -146,8 +152,7 @@ def mma(
             mu,
             zet,
             s,
-            xmin,
-            xmax,
+            bounds,
             df0dx,
             fval,
             dfdx,
@@ -171,8 +176,7 @@ def mmasub(
     n: int,
     iter: int,
     xval: np.ndarray,
-    xmin: np.ndarray,
-    xmax: np.ndarray,
+    bounds: Bounds,
     xold1: np.ndarray,
     xold2: np.ndarray,
     f0val: float,
@@ -221,8 +225,7 @@ def mmasub(
         n (int): Number of variables.
         iter (int): Current iteration number (1 for the first call to mmasub).
         xval (np.ndarray): Current values of the design variables.
-        xmin (np.ndarray): Lower bounds for the design variables.
-        xmax (np.ndarray): Upper bounds for the design variables.
+        bounds (Bounds): Lower (xmin_j) and upper (xmax_j) bounds of the design variables.
         xold1 (np.ndarray): Design variables from one iteration ago (provided that iter > 1).
         xold2 (np.ndarray): Design variables from two iterations ago (provided that iter > 2).
         f0val (float): Objective function value at xval.
@@ -266,8 +269,8 @@ def mmasub(
 
     # Calculation of the asymptotes low and upp
     if iter <= 2:
-        low = xval - asyinit * (xmax - xmin)
-        upp = xval + asyinit * (xmax - xmin)
+        low = xval - asyinit * bounds.delta()
+        upp = xval + asyinit * bounds.delta()
     else:
         zzz = (xval - xold1) * (xold1 - xold2)
         factor = eeen.copy()
@@ -275,10 +278,10 @@ def mmasub(
         factor[zzz < 0] = asydecr
         low = xval - factor * (xold1 - low)
         upp = xval + factor * (upp - xold1)
-        lowmin = xval - asymax * (xmax - xmin)
-        lowmax = xval - asymin * (xmax - xmin)
-        uppmin = xval + asymin * (xmax - xmin)
-        uppmax = xval + asymax * (xmax - xmin)
+        lowmin = xval - asymax * bounds.delta()
+        lowmax = xval - asymin * bounds.delta()
+        uppmin = xval + asymin * bounds.delta()
+        uppmax = xval + asymax * bounds.delta()
         low = np.maximum(low, lowmin)
         low = np.minimum(low, lowmax)
         upp = np.minimum(upp, uppmax)
@@ -286,18 +289,17 @@ def mmasub(
 
     # Calculation of the bounds alfa and beta
     zzz1 = low + albefa * (xval - low)
-    zzz2 = xval - move * (xmax - xmin)
+    zzz2 = xval - move * bounds.delta()
     zzz = np.maximum(zzz1, zzz2)
-    alfa = np.maximum(zzz, xmin)
+    alfa = np.maximum(zzz, bounds.lb)
     zzz1 = upp - albefa * (upp - xval)
-    zzz2 = xval + move * (xmax - xmin)
+    zzz2 = xval + move * bounds.delta()
     zzz = np.minimum(zzz1, zzz2)
-    beta = np.minimum(zzz, xmax)
+    beta = np.minimum(zzz, bounds.ub)
 
     # Calculations of p0, q0, P, Q and b
-    xmami = xmax - xmin
     xmami_eps = 0.00001 * eeen
-    xmami = np.maximum(xmami, xmami_eps)
+    xmami = np.maximum(bounds.delta(), xmami_eps)
     xmami_inv = eeen / xmami
     ux1 = upp - xval
     ux2 = ux1 * ux1
@@ -627,8 +629,7 @@ def kktcheck(
     mu: np.ndarray,
     zet: float,
     s: np.ndarray,
-    xmin: np.ndarray,
-    xmax: np.ndarray,
+    bounds: Bounds,
     df0dx: np.ndarray,
     fval: np.ndarray,
     dfdx: np.ndarray,
@@ -655,8 +656,7 @@ def kktcheck(
         mu (np.ndarray): Lagrange multipliers for the non-negativity constraints on slack variables.
         zet (float): Lagrange multiplier for the non-negativity constraint on z.
         s (np.ndarray): Slack variables for the general constraints.
-        xmin (np.ndarray): Lower bounds for the variables.
-        xmax (np.ndarray): Upper bounds for the variables.
+        bounds (Bounds): Lower and upper bounds for the variables.
         df0dx (np.ndarray): Gradient of the objective function with respect to the variables.
         fval (np.ndarray): Values of the constraint functions.
         dfdx (np.ndarray): Jacobian matrix of the constraint functions.
@@ -677,8 +677,8 @@ def kktcheck(
     rey = c + d * y - mu - lam
     rez = a0 - zet - np.dot(a.T, lam)
     relam = fval - a * z - y + s
-    rexsi = xsi * (x - xmin)
-    reeta = eta * (xmax - x)
+    rexsi = xsi * (x - bounds.lb)
+    reeta = eta * (bounds.ub - x)
     remu = mu * y
     rezet = zet * z
     res = lam * s
