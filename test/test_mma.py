@@ -3,7 +3,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from mma import Bounds, mma
+from mma import Bounds, mma, Options
 
 
 def funct(
@@ -90,7 +90,7 @@ def beam(
 
 
 @pytest.mark.parametrize(
-    "target_function, name, x, bounds, iteration_count, move",
+    "target_function, name, x, bounds, iteration_count, move_limit",
     [
         (toy, "toy", np.array([[4, 3, 2]]).T, Bounds(0, 5), 11, 1),
         (beam, "beam", 5 * np.ones((5, 1)), Bounds(1, 10), 11, 1),
@@ -99,9 +99,13 @@ def beam(
     ],
     ids=["toy", "beam", "funct", "funct2"],
 )
-def test_mma_toy(target_function, name, x, bounds, iteration_count, move):
+def test_mma_toy(
+    target_function, name, x, bounds, iteration_count, move_limit
+):
+    options = Options(move_limit=move_limit)
+
     outvector1s, outvector2s, kktnorms = mma(
-        x, target_function, bounds, iteration_count, move
+        x, target_function, bounds, iteration_count, options
     )
 
     reference_dir = pathlib.Path("test/reference")

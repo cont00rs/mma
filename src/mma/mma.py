@@ -62,6 +62,7 @@ class Options:
     MMA Algorithm options
 
     Attributes:
+        move_limit: Move limit for the design variables.
         asyinit: Factor to calculate the initial distance of the asymptotes.
         asydecr: Factor by which the asymptotes distance is decreased.
         asyincr: Factor by which the asymptotes distance is increased.
@@ -71,6 +72,7 @@ class Options:
         albefa: Factor to calculate the bounds alfa and beta..
     """
 
+    move_limit: float = 0.5
     asyinit: float = 0.5
     asydecr: float = 0.7
     asyincr: float = 1.2
@@ -85,7 +87,7 @@ def mma(
     func: callable,
     bounds: Bounds,
     iteration_count: int,
-    move_limit: float = 0.5,
+    options: Options,
 ):
     """Driver of the MMA optimization.
 
@@ -125,7 +127,6 @@ def mma(
     kktnorm = kkttol + 10
 
     # FIXME: Should c, a0, a, d also be considered "options"?
-    options = Options()
     subproblem = SubProblem(options)
 
     for _ in range(iteration_count):
@@ -151,7 +152,6 @@ def mma(
                 a,
                 c,
                 d,
-                move_limit,
             )
         )
 
@@ -223,7 +223,6 @@ class SubProblem:
         a: np.ndarray,
         c: np.ndarray,
         d: np.ndarray,
-        move_limit: float,
     ) -> Tuple[
         np.ndarray,
         np.ndarray,
@@ -262,7 +261,6 @@ class SubProblem:
             a (np.ndarray): Coefficients for the term a_i * z.
             c (np.ndarray): Coefficients for the term c_i * y_i.
             d (np.ndarray): Coefficients for the term 0.5 * d_i * (y_i)^2.
-            move_limit (float): Move limit for the design variables.
 
         Returns:
             Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
@@ -306,11 +304,11 @@ class SubProblem:
 
         # Calculation of the bounds alfa and beta
         zzz1 = low + self.options.albefa * (xval - low)
-        zzz2 = xval - move_limit * bounds.delta()
+        zzz2 = xval - self.options.move_limit * bounds.delta()
         zzz = np.maximum(zzz1, zzz2)
         alfa = np.maximum(zzz, bounds.lb)
         zzz1 = upp - self.options.albefa * (upp - xval)
-        zzz2 = xval + move_limit * bounds.delta()
+        zzz2 = xval + self.options.move_limit * bounds.delta()
         zzz = np.minimum(zzz1, zzz2)
         beta = np.minimum(zzz, bounds.ub)
 

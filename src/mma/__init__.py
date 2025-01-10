@@ -1,3 +1,7 @@
-from .mma import Bounds, mma
+from .mma import Bounds, Options, mma
 
-__all__ = [mma, Bounds]
+__all__ = [
+    mma,
+    Bounds,
+    Options,
+]
