@@ -74,8 +74,6 @@ def mma(
 
     # Initialisation.
     xval = x.copy()
-    xold1 = xval.copy()
-    xold2 = xval.copy()
 
     # Lower, upper bounds
     low = bounds.lb.copy()
@@ -116,8 +114,6 @@ def mma(
                 n,
                 xval,
                 bounds,
-                xold1,
-                xold2,
                 f0val,
                 df0dx,
                 fval,
@@ -133,8 +129,6 @@ def mma(
         )
 
         # Some vectors are updated:
-        xold2 = xold1.copy()
-        xold1 = xval.copy()
         xval = xmma.copy()
 
         # Re-calculate function values, gradients
@@ -179,7 +173,10 @@ def mma(
 
 class SubProblem:
     def __init__(self):
-        self.iteration: int = 0
+        # xold1 (np.ndarray): Design variables from one iteration ago.
+        self.xold1 = None
+        # xold2 (np.ndarray): Design variables from two iterations ago.
+        self.xold2 = None
 
     def mmasub(
         self,
@@ -187,8 +184,6 @@ class SubProblem:
         n: int,
         xval: np.ndarray,
         bounds: Bounds,
-        xold1: np.ndarray,
-        xold2: np.ndarray,
         f0val: float,
         df0dx: np.ndarray,
         fval: np.ndarray,
@@ -235,8 +230,6 @@ class SubProblem:
             n (int): Number of variables.
             xval (np.ndarray): Current values of the design variables.
             bounds (Bounds): Lower (xmin_j) and upper (xmax_j) bounds of the design variables.
-            xold1 (np.ndarray): Design variables from one iteration ago (provided that iter > 1).
-            xold2 (np.ndarray): Design variables from two iterations ago (provided that iter > 2).
             f0val (float): Objective function value at xval.
             df0dx (np.ndarray): Gradient of the objective function at xval.
             fval (np.ndarray): Constraint function values at xval.
@@ -276,19 +269,17 @@ class SubProblem:
         eeem = np.ones((m, 1), dtype=float)
         zeron = np.zeros((n, 1), dtype=float)
 
-        self.iteration += 1
-
         # Calculation of the asymptotes low and upp
-        if self.iteration <= 2:
+        if self.xold1 is None or self.xold2 is None:
             low = xval - asyinit * bounds.delta()
             upp = xval + asyinit * bounds.delta()
         else:
-            zzz = (xval - xold1) * (xold1 - xold2)
+            zzz = (xval - self.xold1) * (self.xold1 - self.xold2)
             factor = eeen.copy()
             factor[zzz > 0] = asyincr
             factor[zzz < 0] = asydecr
-            low = xval - factor * (xold1 - low)
-            upp = xval + factor * (upp - xold1)
+            low = xval - factor * (self.xold1 - low)
+            upp = xval + factor * (upp - self.xold1)
             lowmin = xval - asymax * bounds.delta()
             lowmax = xval - asymin * bounds.delta()
             uppmin = xval + asymin * bounds.delta()
@@ -342,6 +333,10 @@ class SubProblem:
         xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
             m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
         )
+
+        # Store design variables of last two iterations.
+        self.xold2 = None if self.xold1 is None else self.xold1.copy()
+        self.xold1 = xval.copy()
 
         # Return values
         return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
