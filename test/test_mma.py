@@ -90,7 +90,7 @@ def beam(
 
 
 @pytest.mark.parametrize(
-    "target_function, name, x, bounds, maxoutit, move",
+    "target_function, name, x, bounds, iteration_count, move",
     [
         (toy, "toy", np.array([[4, 3, 2]]).T, Bounds(0, 5), 11, 1),
         (beam, "beam", 5 * np.ones((5, 1)), Bounds(1, 10), 11, 1),
@@ -99,9 +99,9 @@ def beam(
     ],
     ids=["toy", "beam", "funct", "funct2"],
 )
-def test_mma_toy(target_function, name, x, bounds, maxoutit, move):
+def test_mma_toy(target_function, name, x, bounds, iteration_count, move):
     outvector1s, outvector2s, kktnorms = mma(
-        x, target_function, bounds, maxoutit, move
+        x, target_function, bounds, iteration_count, move
     )
 
     reference_dir = pathlib.Path("test/reference")

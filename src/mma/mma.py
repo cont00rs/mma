@@ -59,8 +59,8 @@ def mma(
     x: np.ndarray,
     func: callable,
     bounds: Bounds,
-    maxoutit,
-    move,
+    iteration_count: int,
+    move_limit: float = 0.5,
 ):
     """Driver of the MMA optimization.
 
@@ -101,10 +101,11 @@ def mma(
 
     # The iterations start
     kktnorm = kkttol + 10
-    outit = 0
 
-    while kktnorm > kkttol and outit < maxoutit:
-        outit += 1
+    for _ in range(iteration_count):
+        if kktnorm <= kkttol:
+            break
+
         outeriter += 1
 
         f0val, df0dx, fval, dfdx = func(xval)
@@ -128,7 +129,7 @@ def mma(
             a,
             c,
             d,
-            move,
+            move_limit,
         )
 
         # Some vectors are updated:
@@ -167,6 +168,11 @@ def mma(
         outvector1s += [outvector1.flatten()]
         outvector2s += [outvector2]
         kktnorms += [kktnorm]
+    else:
+        msg = (
+            f"MMA did not converge within iteration limit ({iteration_count})"
+        )
+        print(msg)
 
     return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
 
@@ -189,7 +195,7 @@ def mmasub(
     a: np.ndarray,
     c: np.ndarray,
     d: np.ndarray,
-    move: float = 0.5,
+    move_limit: float,
     asyinit: float = 0.5,
     asydecr: float = 0.7,
     asyincr: float = 1.2,
@@ -238,7 +244,7 @@ def mmasub(
         a (np.ndarray): Coefficients for the term a_i * z.
         c (np.ndarray): Coefficients for the term c_i * y_i.
         d (np.ndarray): Coefficients for the term 0.5 * d_i * (y_i)^2.
-        move (float): Move limit for the design variables. The default is 0.5.
+        move_limit (float): Move limit for the design variables.
         asyinit (float): Factor to calculate the initial distance of the asymptotes. The default value is 0.5.
         asydecr (float): Factor by which the asymptotes distance is decreased. The default value is 0.7.
         asyincr (float): Factor by which the asymptotes distance is increased. The default value is 1.2.
@@ -289,11 +295,11 @@ def mmasub(
 
     # Calculation of the bounds alfa and beta
     zzz1 = low + albefa * (xval - low)
-    zzz2 = xval - move * bounds.delta()
+    zzz2 = xval - move_limit * bounds.delta()
     zzz = np.maximum(zzz1, zzz2)
     alfa = np.maximum(zzz, bounds.lb)
     zzz1 = upp - albefa * (upp - xval)
-    zzz2 = xval + move * bounds.delta()
+    zzz2 = xval + move_limit * bounds.delta()
     zzz = np.minimum(zzz1, zzz2)
     beta = np.minimum(zzz, bounds.ub)
 
