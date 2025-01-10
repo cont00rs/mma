@@ -28,14 +28,28 @@ from typing import Tuple
 
 import numpy as np
 from scipy.linalg import solve  # or use numpy: from numpy.linalg import solve
-from scipy.sparse import diags  # or use numpy: from numpy import diag as diags
+from scipy.sparse import (
+    diags,
+    issparse,
+)
+
+
+class Bounds:
+    """Container for the variable bounds."""
+
+    def __init__(self, lb=-np.inf, ub=np.inf):
+        if issparse(lb) or issparse(ub):
+            message = "Lower and upper bounds must be dense arrays."
+            raise ValueError(message)
+
+        self.lb = np.atleast_1d(lb)
+        self.ub = np.atleast_1d(ub)
 
 
 def mma(
     x: np.ndarray,
     func: callable,
-    lower_bound,
-    upper_bound,
+    bounds: Bounds,
     maxoutit,
     move,
 ):
@@ -55,8 +69,8 @@ def mma(
     xold2 = xval.copy()
 
     # Lower, upper bounds
-    xmin = lower_bound * np.ones((n, 1))
-    xmax = upper_bound * np.ones((n, 1))
+    xmin = bounds.lb
+    xmax = bounds.ub
     low = xmin.copy()
     upp = xmax.copy()
 

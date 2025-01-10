@@ -1,3 +1,3 @@
-from .mma import mma
+from .mma import Bounds, mma
 
-__all__ = [mma]
+__all__ = [mma, Bounds]
