@@ -62,6 +62,7 @@ class Options:
     MMA Algorithm options
 
     Attributes:
+        iteration_count: Maximum number of outer iterations.
         move_limit: Move limit for the design variables.
         asyinit: Factor to calculate the initial distance of the asymptotes.
         asydecr: Factor by which the asymptotes distance is decreased.
@@ -72,6 +73,7 @@ class Options:
         albefa: Factor to calculate the bounds alfa and beta..
     """
 
+    iteration_count: int
     move_limit: float = 0.5
     asyinit: float = 0.5
     asydecr: float = 0.7
@@ -86,7 +88,6 @@ def mma(
     x: np.ndarray,
     func: callable,
     bounds: Bounds,
-    iteration_count: int,
     options: Options,
 ):
     """Driver of the MMA optimization.
@@ -129,7 +130,7 @@ def mma(
     # FIXME: Should c, a0, a, d also be considered "options"?
     subproblem = SubProblem(options)
 
-    for _ in range(iteration_count):
+    for _ in range(options.iteration_count):
         if kktnorm <= kkttol:
             break
 
@@ -190,9 +191,8 @@ def mma(
         outvector2s += [outvector2]
         kktnorms += [kktnorm]
     else:
-        msg = (
-            f"MMA did not converge within iteration limit ({iteration_count})"
-        )
+        count = options.iteration_count
+        msg = f"MMA did not converge within iteration limit ({count})"
         print(msg)
 
     return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)

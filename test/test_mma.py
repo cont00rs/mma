@@ -102,10 +102,13 @@ def beam(
 def test_mma_toy(
     target_function, name, x, bounds, iteration_count, move_limit
 ):
-    options = Options(move_limit=move_limit)
+    options = Options(
+        iteration_count=iteration_count,
+        move_limit=move_limit,
+    )
 
     outvector1s, outvector2s, kktnorms = mma(
-        x, target_function, bounds, iteration_count, options
+        x, target_function, bounds, options
     )
 
     reference_dir = pathlib.Path("test/reference")
