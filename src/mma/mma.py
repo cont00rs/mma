@@ -70,7 +70,8 @@ class Options:
         asymin: Factor to calculate the minimum distance of the asymptotes.
         asymax: Factor to calculate the maximum distance of the asymptotes.
         raa0: Parameter representing the function approximation's accuracy.
-        albefa: Factor to calculate the bounds alfa and beta..
+        alpha_factor: Factor to calculate the bounds alpha.
+        beta_factor: Factor to calculate the bounds beta.
     """
 
     iteration_count: int
@@ -81,7 +82,8 @@ class Options:
     asymin: float = 0.01
     asymax: float = 10
     raa0: float = 0.00001
-    albefa: float = 0.1
+    beta_factor: float = 0.1
+    alpha_factor: float = 0.1
 
 
 def mma(
@@ -284,14 +286,7 @@ class SubProblem:
         low, upp = self.update_asymptotes(xval, bounds, low, upp)
 
         # Calculation of the bounds alfa and beta
-        zzz1 = low + self.options.albefa * (xval - low)
-        zzz2 = xval - self.options.move_limit * bounds.delta()
-        zzz = np.maximum(zzz1, zzz2)
-        alfa = np.maximum(zzz, bounds.lb)
-        zzz1 = upp - self.options.albefa * (upp - xval)
-        zzz2 = xval + self.options.move_limit * bounds.delta()
-        zzz = np.minimum(zzz1, zzz2)
-        beta = np.minimum(zzz, bounds.ub)
+        alfa, beta = self.calculate_alpha_beta(xval, bounds, low, upp)
 
         # Calculations of p0, q0, P, Q and b
         xmami_eps = 0.00001 * eeen
@@ -379,6 +374,30 @@ class SubProblem:
         )
 
         return low, upp
+
+    def calculate_alpha_beta(self, xval, bounds, low, upp):
+        """Calculation of the bounds alpha and beta.
+
+        Equations 3.6 and 3.7.
+        """
+
+        # Restrict lower bound with move limit.
+        lower_bound = np.maximum(
+            low + self.options.alpha_factor * (xval - low),
+            xval - self.options.move_limit * bounds.delta(),
+        )
+
+        # Restrict upper bound with move limit.
+        upper_bound = np.minimum(
+            upp - self.options.beta_factor * (upp - xval),
+            xval + self.options.move_limit * bounds.delta(),
+        )
+
+        # Restrict bounds with variable bounds.
+        alpha = np.maximum(lower_bound, bounds.lb)
+        beta = np.minimum(upper_bound, bounds.ub)
+
+        return alpha, beta
 
 
 def subsolv(
