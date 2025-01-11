@@ -276,8 +276,6 @@ class SubProblem:
                 - low (np.ndarray): Updated lower bounds for the design variables.
                 - upp (np.ndarray): Updated upper bounds for the design variables.
         """
-
-        epsimin = 0.0000001
         eeen = np.ones((n, 1), dtype=float)
         eeem = np.ones((m, 1), dtype=float)
         zeron = np.zeros((n, 1), dtype=float)
@@ -343,8 +341,9 @@ class SubProblem:
         b = np.dot(P, ux_inv) + np.dot(Q, xl_inv) - fval
 
         # Solving the subproblem using the primal-dual Newton method
+        # FIXME: Move options for Newton method into dataclass.
         xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
-            m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
+            m, n, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
         )
 
         # Store design variables of last two iterations.
@@ -358,7 +357,6 @@ class SubProblem:
 def subsolv(
     m: int,
     n: int,
-    epsimin: float,
     low: np.ndarray,
     upp: np.ndarray,
     alfa: np.ndarray,
@@ -396,7 +394,6 @@ def subsolv(
     Args:
         m (int): Number of constraints.
         n (int): Number of variables.
-        epsimin (float): A small positive number to ensure numerical stability.
         low (np.ndarray): Lower bounds for the variables x_j.
         upp (np.ndarray): Upper bounds for the variables x_j.
         alfa (np.ndarray): Lower asymptotes for the variables.
@@ -437,6 +434,9 @@ def subsolv(
     zet = np.array([[1.0]])
     s = eem.copy()
     itera = 0
+
+    # A small positive number to ensure numerical stability.
+    epsimin = 0.0000001
 
     # Start while loop for numerical stability
     while epsi > epsimin:
