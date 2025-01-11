@@ -3,7 +3,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from mma import Bounds, mma, Options
+from mma import Bounds, Options, mma
 
 
 def funct(
