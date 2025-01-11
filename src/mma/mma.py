@@ -280,25 +280,8 @@ class SubProblem:
         eeem = np.ones((m, 1), dtype=float)
         zeron = np.zeros((n, 1), dtype=float)
 
-        # Calculation of the asymptotes low and upp
-        if self.xold1 is None or self.xold2 is None:
-            low = xval - self.options.asyinit * bounds.delta()
-            upp = xval + self.options.asyinit * bounds.delta()
-        else:
-            zzz = (xval - self.xold1) * (self.xold1 - self.xold2)
-            factor = eeen.copy()
-            factor[zzz > 0] = self.options.asyincr
-            factor[zzz < 0] = self.options.asydecr
-            low = xval - factor * (self.xold1 - low)
-            upp = xval + factor * (upp - self.xold1)
-            lowmin = xval - self.options.asymax * bounds.delta()
-            lowmax = xval - self.options.asymin * bounds.delta()
-            uppmin = xval + self.options.asymin * bounds.delta()
-            uppmax = xval + self.options.asymax * bounds.delta()
-            low = np.maximum(low, lowmin)
-            low = np.minimum(low, lowmax)
-            upp = np.minimum(upp, uppmax)
-            upp = np.maximum(upp, uppmin)
+        # Calculation of the asymptotes low and upp.
+        low, upp = self.update_asymptotes(xval, bounds, low, upp)
 
         # Calculation of the bounds alfa and beta
         zzz1 = low + self.options.albefa * (xval - low)
@@ -352,6 +335,50 @@ class SubProblem:
 
         # Return values
         return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
+
+    def update_asymptotes(self, xval, bounds, low, upp):
+        """Calculation of the asymptotes low and upp.
+
+        This represents equations 3.11 to 3.14.
+        """
+
+        # The difference between upper and lower bounds.
+        delta = bounds.delta()
+
+        if self.xold1 is None or self.xold2 is None:
+            # Equation 3.11.
+            low = xval - self.options.asyinit * delta
+            upp = xval + self.options.asyinit * delta
+            return low, upp
+
+        # Extract sign of variable change from previous iterates.
+        signs = (xval - self.xold1) * (self.xold1 - self.xold2)
+
+        # Assign increase/decrease factoring depending on signs. Equation 3.13.
+        factor = np.ones_like(xval, dtype=float)
+        factor[signs > 0] = self.options.asyincr
+        factor[signs < 0] = self.options.asydecr
+
+        # Equation 3.12.
+        low = xval - factor * (self.xold1 - low)
+        upp = xval + factor * (upp - self.xold1)
+
+        # Limit asymptote change to maximum increase/decrease. Equation 3.14.
+        np.clip(
+            low,
+            a_min=xval - self.options.asymax * delta,
+            a_max=xval - self.options.asymin * delta,
+            out=low,
+        )
+
+        np.clip(
+            upp,
+            a_min=xval + self.options.asymin * delta,
+            a_max=xval + self.options.asymax * delta,
+            out=upp,
+        )
+
+        return low, upp
 
 
 def subsolv(
