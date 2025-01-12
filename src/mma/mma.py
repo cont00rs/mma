@@ -140,27 +140,25 @@ def mma(
         f0val, df0dx, fval, dfdx = func(xval)
 
         # The MMA subproblem is solved at the point xval:
-        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = (
-            subproblem.mmasub(
-                m,
-                n,
-                xval,
-                bounds,
-                f0val,
-                df0dx,
-                fval,
-                dfdx,
-                low,
-                upp,
-                a0,
-                a,
-                c,
-                d,
-            )
+        state, low, upp = subproblem.mmasub(
+            m,
+            n,
+            xval,
+            bounds,
+            f0val,
+            df0dx,
+            fval,
+            dfdx,
+            low,
+            upp,
+            a0,
+            a,
+            c,
+            d,
         )
 
         # Some vectors are updated:
-        xval = xmma.copy()
+        xval = state.x.copy()
 
         # Re-calculate function values, gradients
         f0val, df0dx, fval, dfdx = func(xval)
@@ -169,15 +167,15 @@ def mma(
         residu, kktnorm, residumax = kktcheck(
             m,
             n,
-            xmma,
-            ymma,
-            zmma,
-            lam,
-            xsi,
-            eta,
-            mu,
-            zet,
-            s,
+            state.x,
+            state.y,
+            state.z,
+            state.lam,
+            state.xsi,
+            state.eta,
+            state.mu,
+            state.zet,
+            state.s,
             bounds,
             df0dx,
             fval,
@@ -300,7 +298,7 @@ class SubProblem:
 
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
-        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
+        state = subsolv(
             m, n, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
         )
 
@@ -309,7 +307,7 @@ class SubProblem:
         self.xold1 = xval.copy()
 
         # Return values
-        return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
+        return state, low, upp
 
     def update_asymptotes(self, xval, bounds, low, upp):
         """Calculation of the asymptotes low and upp.
@@ -430,6 +428,11 @@ class State:
     """State representation for the Newton problem.
 
     Section 5.3.
+        - xmma (np.ndarray): Optimal values of the variables x_j.
+        - ymma (np.ndarray): Optimal values of the variables y_i.
+        - zmma (float): Optimal value of the variable z.
+        - slack (np.ndarray): Slack variables for the general MMA constraints.
+        - lagrange (np.ndarray): Lagrange multipliers for the constraints.
     """
 
     def __init__(self, x, y, z, lam, xsi, eta, mu, zet, s):
@@ -479,8 +482,8 @@ class State:
         full state vector of all equations.
         """
 
-        plam = p0 + np.dot(P.T, self.lam)
-        qlam = q0 + np.dot(Q.T, self.lam)
+        plam = p0 + P.T @ self.lam
+        qlam = q0 + Q.T @ self.lam
         gvec = P @ (1 / (upp - self.x)) + Q @ (1 / (self.x - low))
         dpsidx = plam / (upp - self.x) ** 2 - qlam / (self.x - low) ** 2
 
@@ -572,12 +575,7 @@ def subsolv(
         d (np.ndarray): Coefficients for the quadratic terms involving y in the objective function.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
-            - xmma (np.ndarray): Optimal values of the variables x_j.
-            - ymma (np.ndarray): Optimal values of the variables y_i.
-            - zmma (float): Optimal value of the variable z.
-            - slack (np.ndarray): Slack variables for the general MMA constraints.
-            - lagrange (np.ndarray): Lagrange multipliers for the constraints.
+        State
     """
 
     # Initial problem state as given in Section 5.5 beginning.
@@ -763,17 +761,7 @@ def subsolv(
 
         epsi = 0.1 * epsi
 
-    xmma = state.x.copy()
-    ymma = state.y.copy()
-    zmma = state.z.copy()
-    lamma = state.lam
-    xsimma = state.xsi
-    etamma = state.eta
-    mumma = state.mu
-    zetmma = state.zet
-    smma = state.s
-
-    return xmma, ymma, zmma, lamma, xsimma, etamma, mumma, zetmma, smma
+    return state
 
 
 def line_search(
