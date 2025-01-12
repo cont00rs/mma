@@ -199,6 +199,131 @@ def mma(
     return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
 
 
+class State:
+    """State representation for the Newton problem.
+
+    Section 5.3.
+        - xmma (np.ndarray): Optimal values of the variables x_j.
+        - ymma (np.ndarray): Optimal values of the variables y_i.
+        - zmma (float): Optimal value of the variable z.
+        - slack (np.ndarray): Slack variables for the general MMA constraints.
+        - lagrange (np.ndarray): Lagrange multipliers for the constraints.
+    """
+
+    def __init__(self, x, y, z, lam, xsi, eta, mu, zet, s):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.lam = lam
+        self.xsi = xsi
+        self.eta = eta
+        self.mu = mu
+        self.zet = zet
+        self.s = s
+
+    @classmethod
+    def from_apha_beta(cls, n, m, alpha, beta, c):
+        x = (alpha + beta) / 2
+        y = np.ones((m, 1))
+        z = np.array([[1.0]])
+        lam = np.ones((m, 1))
+        xsi = np.maximum(1 / (x - alpha), 1)
+        eta = np.maximum(1 / (beta - x), 1)
+        mu = np.maximum(np.ones((m, 1)), 0.5 * c)
+        zet = np.array([[1.0]])
+        s = np.ones((m, 1))
+
+        return State(x, y, z, lam, xsi, eta, mu, zet, s)
+
+    def copy(self):
+        return State(
+            self.x.copy(),
+            self.y.copy(),
+            self.z.copy(),
+            self.lam.copy(),
+            self.xsi.copy(),
+            self.eta.copy(),
+            self.mu.copy(),
+            self.zet.copy(),
+            self.s.copy(),
+        )
+
+    def __add__(self, other):
+        assert isinstance(other, State)
+
+        return State(
+            self.x + other.x,
+            self.y + other.y,
+            self.z + other.z,
+            self.lam + other.lam,
+            self.xsi + other.xsi,
+            self.eta + other.eta,
+            self.mu + other.mu,
+            self.zet + other.zet,
+            self.s + other.s,
+        )
+
+    def scale(self, value: int | float):
+        """Scale all state variables."""
+        self.x *= value
+        self.y *= value
+        self.z *= value
+        self.lam *= value
+        self.xsi *= value
+        self.eta *= value
+        self.mu *= value
+        self.zet *= value
+        self.s *= value
+        return self
+
+    def relaxed_residual(
+        self, a0, a, b, c, d, p0, q0, P, Q, alpha, beta, low, upp, epsi
+    ):
+        """Calculate residuals of the relaxed equations.
+
+        The state equations are converted to their "relaxed" form,
+        see Equations 5.9*, and the residuals are obtained from the
+        full state vector of all equations.
+        """
+
+        plam = p0 + P.T @ self.lam
+        qlam = q0 + Q.T @ self.lam
+        gvec = P @ (1 / (upp - self.x)) + Q @ (1 / (self.x - low))
+        dpsidx = plam / (upp - self.x) ** 2 - qlam / (self.x - low) ** 2
+
+        relaxed = State(
+            dpsidx - self.xsi + self.eta,
+            c + d * self.y - self.mu - self.lam,
+            a0 - self.zet - a.T @ self.lam,
+            gvec - a * self.z - self.y + self.s - b,
+            self.xsi * (self.x - alpha) - epsi,
+            self.eta * (beta - self.x) - epsi,
+            self.mu * self.y - epsi,
+            self.zet * self.z - epsi,
+            self.lam * self.s - epsi,
+        )
+
+        residual = np.concatenate(
+            (
+                relaxed.x,
+                relaxed.y,
+                relaxed.z,
+                relaxed.lam,
+                relaxed.xsi,
+                relaxed.eta,
+                relaxed.mu,
+                relaxed.zet,
+                relaxed.s,
+            ),
+            axis=0,
+        )
+
+        norm = np.sqrt(np.dot(residual.T, residual).item())
+        norm_max = np.max(np.abs(residual))
+
+        return norm, norm_max
+
+
 class SubProblem:
     def __init__(self, options: Options):
         self.options = options
@@ -225,14 +350,7 @@ class SubProblem:
         c: np.ndarray,
         d: np.ndarray,
     ) -> Tuple[
-        np.ndarray,
-        np.ndarray,
-        float,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        float,
+        State,
         np.ndarray,
         np.ndarray,
     ]:
@@ -424,102 +542,6 @@ class SubProblem:
             return p0.T, q0.T
 
 
-class State:
-    """State representation for the Newton problem.
-
-    Section 5.3.
-        - xmma (np.ndarray): Optimal values of the variables x_j.
-        - ymma (np.ndarray): Optimal values of the variables y_i.
-        - zmma (float): Optimal value of the variable z.
-        - slack (np.ndarray): Slack variables for the general MMA constraints.
-        - lagrange (np.ndarray): Lagrange multipliers for the constraints.
-    """
-
-    def __init__(self, x, y, z, lam, xsi, eta, mu, zet, s):
-        self.x = x
-        self.y = y
-        self.z = z
-        self.lam = lam
-        self.xsi = xsi
-        self.eta = eta
-        self.mu = mu
-        self.zet = zet
-        self.s = s
-
-    @classmethod
-    def from_apha_beta(cls, n, m, alpha, beta, c):
-        x = (alpha + beta) / 2
-        y = np.ones((m, 1))
-        z = np.array([[1.0]])
-        lam = np.ones((m, 1))
-        xsi = np.maximum(1 / (x - alpha), 1)
-        eta = np.maximum(1 / (beta - x), 1)
-        mu = np.maximum(np.ones((m, 1)), 0.5 * c)
-        zet = np.array([[1.0]])
-        s = np.ones((m, 1))
-        return State(x, y, z, lam, xsi, eta, mu, zet, s)
-
-    def copy(self):
-        return State(
-            self.x.copy(),
-            self.y.copy(),
-            self.z.copy(),
-            self.lam.copy(),
-            self.xsi.copy(),
-            self.eta.copy(),
-            self.mu.copy(),
-            self.zet.copy(),
-            self.s.copy(),
-        )
-
-    def relaxed_residual(
-        self, a0, a, b, c, d, p0, q0, P, Q, alpha, beta, low, upp, epsi
-    ):
-        """Calculate residuals of the relaxed equations.
-
-        The state equations are converted to their "relaxed" form,
-        see Equations 5.9*, and the residuals are obtained from the
-        full state vector of all equations.
-        """
-
-        plam = p0 + P.T @ self.lam
-        qlam = q0 + Q.T @ self.lam
-        gvec = P @ (1 / (upp - self.x)) + Q @ (1 / (self.x - low))
-        dpsidx = plam / (upp - self.x) ** 2 - qlam / (self.x - low) ** 2
-
-        relaxed = State(
-            dpsidx - self.xsi + self.eta,
-            c + d * self.y - self.mu - self.lam,
-            a0 - self.zet - a.T @ self.lam,
-            gvec - a * self.z - self.y + self.s - b,
-            self.xsi * (self.x - alpha) - epsi,
-            self.eta * (beta - self.x) - epsi,
-            self.mu * self.y - epsi,
-            self.zet * self.z - epsi,
-            self.lam * self.s - epsi,
-        )
-
-        residual = np.concatenate(
-            (
-                relaxed.x,
-                relaxed.y,
-                relaxed.z,
-                relaxed.lam,
-                relaxed.xsi,
-                relaxed.eta,
-                relaxed.mu,
-                relaxed.zet,
-                relaxed.s,
-            ),
-            axis=0,
-        )
-
-        norm = np.sqrt(np.dot(residual.T, residual).item())
-        norm_max = np.max(np.abs(residual))
-
-        return norm, norm_max
-
-
 def subsolv(
     m: int,
     n: int,
@@ -536,17 +558,7 @@ def subsolv(
     b: np.ndarray,
     c: np.ndarray,
     d: np.ndarray,
-) -> Tuple[
-    np.ndarray,
-    np.ndarray,
-    float,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    float,
-    np.ndarray,
-    np.ndarray,
-]:
+) -> State:
     """
     Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
@@ -579,162 +591,50 @@ def subsolv(
     """
 
     # Initial problem state as given in Section 5.5 beginning.
-    een = np.ones((n, 1))
-    eem = np.ones((m, 1))
     epsi = 1
 
     state = State.from_apha_beta(n, m, alfa, beta, c)
 
     # A small positive number to ensure numerical stability.
     epsimin = 1e-7
+    iteration_count = 200
 
     # Start while loop for numerical stability
     while epsi > epsimin:
-        # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
-        residunorm, residumax = state.relaxed_residual(
-            a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
-        )
-
         # Start inner while loop for optimization
-        for ittt in range(200):
+        for _ in range(iteration_count):
+            # Compute relaxed optimality conditions, Section 5.2.
+            residunorm, residumax = state.relaxed_residual(
+                a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
+            )
+
             if residumax <= 0.9 * epsi:
                 break
 
-            ux1 = upp - state.x
-            xl1 = state.x - low
-            ux2 = ux1 * ux1
-            xl2 = xl1 * xl1
-            ux3 = ux1 * ux2
-            xl3 = xl1 * xl2
-            uxinv1 = een / ux1
-            xlinv1 = een / xl1
-            uxinv2 = een / ux2
-            xlinv2 = een / xl2
-            plam = p0 + np.dot(P.T, state.lam)
-            qlam = q0 + np.dot(Q.T, state.lam)
-            gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-            GG = (diags(uxinv2.flatten(), 0).dot(P.T)).T - (
-                diags(xlinv2.flatten(), 0).dot(Q.T)
-            ).T
-            dpsidx = plam / ux2 - qlam / xl2
-            delx = dpsidx - epsi / (state.x - alfa) + epsi / (beta - state.x)
-            dely = c + d * state.y - state.lam - epsi / state.y
-            delz = a0 - np.dot(a.T, state.lam) - epsi / state.z
-            dellam = gvec - a * state.z - state.y - b + epsi / state.lam
-            diagx = plam / ux3 + qlam / xl3
-            diagx = (
-                2 * diagx
-                + state.xsi / (state.x - alfa)
-                + state.eta / (beta - state.x)
-            )
-            diagxinv = een / diagx
-            diagy = d + state.mu / state.y
-            diagyinv = eem / diagy
-            diaglam = state.s / state.lam
-            diaglamyi = diaglam + diagyinv
-
-            # Solve system of equations
-            # The size of design variables and constraint functions play
-            # a role in determining how to solve the primal-dual problem.
-            # The paper expands on this at the end of Section 5.3.
-            # TODO: Consider to move more of that discussion here.
-
-            if n > m:
-                # Delta x is eliminated (Equation 5.19) and the system
-                # of equations in delta lambda, delta z is constructed.
-                # This represents Equation 5.20.
-                blam = dellam + dely / diagy - np.dot(GG, (delx / diagx))
-                bb = np.concatenate((blam, delz), axis=0)
-                Alam = np.asarray(
-                    diags(diaglamyi.flatten(), 0)
-                    + (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T)
-                )
-                AAr1 = np.concatenate((Alam, a), axis=1)
-                AAr2 = np.concatenate((a, -state.zet / state.z), axis=0).T
-                AA = np.concatenate((AAr1, AAr2), axis=0)
-                solut = solve(AA, bb)
-                dlam = solut[0:m]
-
-                dz = solut[m : m + 1]
-                dx = -delx / diagx - np.dot(GG.T, dlam) / diagx
-            else:
-                # Delta lambda is eliminated (Equation 5.21) and the system
-                # of equations in delta x, delta z is constructed. This
-                # represents Equation 5.22.
-                diaglamyiinv = eem / diaglamyi
-                dellamyi = dellam + dely / diagy
-                Axx = np.asarray(
-                    diags(diagx.flatten(), 0)
-                    + (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG)
-                )
-                azz = state.zet / state.z + np.dot(a.T, (a / diaglamyi))
-                axz = np.dot(-GG.T, (a / diaglamyi))
-                bx = delx + np.dot(GG.T, (dellamyi / diaglamyi))
-                bz = delz - np.dot(a.T, (dellamyi / diaglamyi))
-                AAr1 = np.concatenate((Axx, axz), axis=1)
-                AAr2 = np.concatenate((axz.T, azz), axis=1)
-                AA = np.concatenate((AAr1, AAr2), axis=0)
-                bb = np.concatenate((-bx, -bz), axis=0)
-                solut = solve(AA, bb)
-                dx = solut[0:n]
-                dz = solut[n : n + 1]
-                dlam = (
-                    np.dot(GG, dx) / diaglamyi
-                    - dz * (a / diaglamyi)
-                    + dellamyi / diaglamyi
-                )
-
-            # Back substitute the solutions found to reconstruct the full
-            # solutions of delta's. This is the solution of a Newton step
-            # as specified at the start of Section 5.3.
-            dy = -dely / diagy + dlam / diagy
-            dxsi = (
-                -state.xsi
-                + epsi / (state.x - alfa)
-                - (state.xsi * dx) / (state.x - alfa)
-            )
-            deta = (
-                -state.eta
-                + epsi / (beta - state.x)
-                + (state.eta * dx) / (beta - state.x)
-            )
-            dmu = -state.mu + epsi / state.y - (state.mu * dy) / state.y
-            dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
-            ds = -state.s + epsi / state.lam - (state.s * dlam) / state.lam
-
-            d_state = State(dx, dy, dz, dlam, dxsi, deta, dmu, dzet, ds)
-
-            xx = np.concatenate(
-                (
-                    state.y,
-                    state.z,
-                    state.lam,
-                    state.xsi,
-                    state.eta,
-                    state.mu,
-                    state.zet,
-                    state.s,
-                ),
-                axis=0,
-            )
-            dxx = np.concatenate(
-                (
-                    d_state.y,
-                    d_state.z,
-                    d_state.lam,
-                    d_state.xsi,
-                    d_state.eta,
-                    d_state.mu,
-                    d_state.zet,
-                    d_state.s,
-                ),
-                axis=0,
+            d_state = solve_newton_step(
+                state,
+                # bounds
+                low,
+                upp,
+                alfa,
+                beta,
+                # approximations
+                p0,
+                q0,
+                P,
+                Q,
+                # parameters
+                a0,
+                a,
+                b,
+                c,
+                d,
+                epsi,
+                n,
+                m,
             )
 
-            state, residumax = line_search(
-                # newton solution
-                xx,
-                dxx,
+            state = line_search(
                 # bounds
                 low,
                 upp,
@@ -754,7 +654,6 @@ def subsolv(
                 c,
                 d,
                 epsi,
-                residunorm,
                 n,
                 m,
             )
@@ -764,10 +663,132 @@ def subsolv(
     return state
 
 
+# FIXME: Match this to interface of `line_search`.
+def solve_newton_step(
+    state,
+    low,
+    upp,
+    alfa,
+    beta,
+    # approximations
+    p0,
+    q0,
+    P,
+    Q,
+    # parameters
+    a0,
+    a,
+    b,
+    c,
+    d,
+    epsi,
+    n,
+    m,
+):
+    ux1 = upp - state.x
+    xl1 = state.x - low
+    ux2 = ux1 * ux1
+    xl2 = xl1 * xl1
+    ux3 = ux1 * ux2
+    xl3 = xl1 * xl2
+    uxinv1 = 1 / ux1
+    xlinv1 = 1 / xl1
+    uxinv2 = 1 / ux2
+    xlinv2 = 1 / xl2
+    plam = p0 + np.dot(P.T, state.lam)
+    qlam = q0 + np.dot(Q.T, state.lam)
+    gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
+    GG = (diags(uxinv2.flatten(), 0).dot(P.T)).T - (
+        diags(xlinv2.flatten(), 0).dot(Q.T)
+    ).T
+    dpsidx = plam / ux2 - qlam / xl2
+    delx = dpsidx - epsi / (state.x - alfa) + epsi / (beta - state.x)
+    dely = c + d * state.y - state.lam - epsi / state.y
+    delz = a0 - np.dot(a.T, state.lam) - epsi / state.z
+    dellam = gvec - a * state.z - state.y - b + epsi / state.lam
+    diagx = plam / ux3 + qlam / xl3
+    diagx = (
+        2 * diagx + state.xsi / (state.x - alfa) + state.eta / (beta - state.x)
+    )
+    diagxinv = 1 / diagx
+    diagy = d + state.mu / state.y
+    diagyinv = 1 / diagy
+    diaglam = state.s / state.lam
+    diaglamyi = diaglam + diagyinv
+
+    # Solve system of equations
+    # The size of design variables and constraint functions play
+    # a role in determining how to solve the primal-dual problem.
+    # The paper expands on this at the end of Section 5.3.
+    # TODO: Consider to move more of that discussion here.
+
+    if n > m:
+        # Delta x is eliminated (Equation 5.19) and the system
+        # of equations in delta lambda, delta z is constructed.
+        # This represents Equation 5.20.
+        blam = dellam + dely / diagy - np.dot(GG, (delx / diagx))
+        bb = np.concatenate((blam, delz), axis=0)
+        Alam = np.asarray(
+            diags(diaglamyi.flatten(), 0)
+            + (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T)
+        )
+        AAr1 = np.concatenate((Alam, a), axis=1)
+        AAr2 = np.concatenate((a, -state.zet / state.z), axis=0).T
+        AA = np.concatenate((AAr1, AAr2), axis=0)
+        solut = solve(AA, bb)
+        dlam = solut[0:m]
+
+        dz = solut[m : m + 1]
+        dx = -delx / diagx - np.dot(GG.T, dlam) / diagx
+    else:
+        # Delta lambda is eliminated (Equation 5.21) and the system
+        # of equations in delta x, delta z is constructed. This
+        # represents Equation 5.22.
+        diaglamyiinv = 1 / diaglamyi
+        dellamyi = dellam + dely / diagy
+        Axx = np.asarray(
+            diags(diagx.flatten(), 0)
+            + (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG)
+        )
+        azz = state.zet / state.z + np.dot(a.T, (a / diaglamyi))
+        axz = np.dot(-GG.T, (a / diaglamyi))
+        bx = delx + np.dot(GG.T, (dellamyi / diaglamyi))
+        bz = delz - np.dot(a.T, (dellamyi / diaglamyi))
+        AAr1 = np.concatenate((Axx, axz), axis=1)
+        AAr2 = np.concatenate((axz.T, azz), axis=1)
+        AA = np.concatenate((AAr1, AAr2), axis=0)
+        bb = np.concatenate((-bx, -bz), axis=0)
+        solut = solve(AA, bb)
+        dx = solut[0:n]
+        dz = solut[n : n + 1]
+        dlam = (
+            np.dot(GG, dx) / diaglamyi
+            - dz * (a / diaglamyi)
+            + dellamyi / diaglamyi
+        )
+
+    # Back substitute the solutions found to reconstruct the full
+    # solutions of delta's. This is the solution of a Newton step
+    # as specified at the start of Section 5.3.
+    dy = -dely / diagy + dlam / diagy
+    dxsi = (
+        -state.xsi
+        + epsi / (state.x - alfa)
+        - (state.xsi * dx) / (state.x - alfa)
+    )
+    deta = (
+        -state.eta
+        + epsi / (beta - state.x)
+        + (state.eta * dx) / (beta - state.x)
+    )
+    dmu = -state.mu + epsi / state.y - (state.mu * dy) / state.y
+    dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
+    ds = -state.s + epsi / state.lam - (state.s * dlam) / state.lam
+
+    return State(dx, dy, dz, dlam, dxsi, deta, dmu, dzet, ds)
+
+
 def line_search(
-    # newton solution
-    xx,
-    dxx,
     # bounds
     low,
     upp,
@@ -787,7 +808,6 @@ def line_search(
     c,
     d,
     epsi,
-    residunorm,
     n,
     m,
 ):
@@ -801,6 +821,34 @@ def line_search(
     indicated in Section 5.4.
     """
 
+    xx = np.concatenate(
+        (
+            state.y,
+            state.z,
+            state.lam,
+            state.xsi,
+            state.eta,
+            state.mu,
+            state.zet,
+            state.s,
+        ),
+        axis=0,
+    )
+
+    dxx = np.concatenate(
+        (
+            d_state.y,
+            d_state.z,
+            d_state.lam,
+            d_state.xsi,
+            d_state.eta,
+            d_state.mu,
+            d_state.zet,
+            d_state.s,
+        ),
+        axis=0,
+    )
+
     # Step length determination
     stepxx = -1.01 * dxx / xx
     stmxx = np.max(stepxx)
@@ -813,37 +861,34 @@ def line_search(
     stminv = np.maximum(stmalbexx, 1.0)
     steg = 1.0 / stminv
 
-    # Update variables
+    # Keep current state without addition of any Newton step.
     old = state.copy()
 
-    itto = 0
-    resinew = 2 * residunorm
+    # Initial residual to be improved up on.
+    residunorm, _ = state.relaxed_residual(
+        a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
+    )
 
-    for itto in range(50):
+    # Find largest step sizes that decreases the residual.
+    # Since the direction is a descent direction, a reduction will be found.
+    # It can be found for fairly small step sizes though.
+    resinew = np.inf
+    iteration_count = 50
+
+    for iteration in range(iteration_count):
         if resinew <= residunorm:
             break
 
-        state.x = old.x + steg * d_state.x
-        state.y = old.y + steg * d_state.y
-        state.z = old.z + steg * d_state.z
-        state.lam = old.lam + steg * d_state.lam
-        state.xsi = old.xsi + steg * d_state.xsi
-        state.eta = old.eta + steg * d_state.eta
-        state.mu = old.mu + steg * d_state.mu
-        state.zet = old.zet + steg * d_state.zet
-        state.s = old.s + steg * d_state.s
+        # Step along the search direction.
+        scaling = steg / (2**iteration)
+        state = old + d_state.scale(scaling)
 
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
         resinew, residumax = state.relaxed_residual(
             a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
         )
 
-        steg = steg / 2
-
-    # residumax = np.max(np.abs(residu))
-    steg = 2 * steg
-
-    return state, residumax
+    return state
 
 
 def kktcheck(
