@@ -95,6 +95,7 @@ class AlphaBetaBounds:
     upp: np.ndarray
     alpha: np.ndarray
     beta: np.ndarray
+    bounds: Bounds
 
 
 def mma(
@@ -416,11 +417,11 @@ class SubProblem:
 
         # Calculations approximating functions: P, Q.
         p0, q0 = self.approximating_functions(
-            xval, df0dx, bounds, alpha_beta, objective=True
+            xval, df0dx, alpha_beta, objective=True
         )
 
         P, Q = self.approximating_functions(
-            xval, dfdx, bounds, alpha_beta, objective=False
+            xval, dfdx, alpha_beta, objective=False
         )
 
         # Negative residual between approximating functions and objective
@@ -504,10 +505,10 @@ class SubProblem:
         alpha = np.maximum(lower_bound, bounds.lb)
         beta = np.minimum(upper_bound, bounds.ub)
 
-        return AlphaBetaBounds(low, upp, alpha, beta)
+        return AlphaBetaBounds(low, upp, alpha, beta, bounds)
 
     def approximating_functions(
-        self, xval, dfdx, bounds, alpha_beta: AlphaBetaBounds, objective=True
+        self, xval, dfdx, alpha_beta: AlphaBetaBounds, objective=True
     ):
         """Calculate approximating functions "P" and "Q".
 
@@ -528,7 +529,7 @@ class SubProblem:
         # Inverse bounds with eps to avoid divide by zero.
         # Last component of equations 3.3 and 3.4.
         eps_delta = 0.00001
-        delta_inv = 1 / np.maximum(bounds.delta(), eps_delta)
+        delta_inv = 1 / np.maximum(alpha_beta.bounds.delta(), eps_delta)
 
         if objective:
             df_plus = np.maximum(dfdx, 0)
