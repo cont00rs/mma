@@ -426,6 +426,50 @@ class SubProblem:
             return p0.T, q0.T
 
 
+class State:
+    """State representation for the Newton problem.
+
+    Section 5.3.
+    """
+
+    def __init__(self, x, y, z, lam, xsi, eta, mu, zet, s):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.lam = lam
+        self.xsi = xsi
+        self.eta = eta
+        self.mu = mu
+        self.zet = zet
+        self.s = s
+
+    @classmethod
+    def from_apha_beta(cls, n, m, alpha, beta, c):
+        x = (alpha + beta) / 2
+        y = np.ones((m, 1))
+        z = np.array([[1.0]])
+        lam = np.ones((m, 1))
+        xsi = np.maximum(1 / (x - alpha), 1)
+        eta = np.maximum(1 / (beta - x), 1)
+        mu = np.maximum(np.ones((m, 1)), 0.5 * c)
+        zet = np.array([[1.0]])
+        s = np.ones((m, 1))
+        return State(x, y, z, lam, xsi, eta, mu, zet, s)
+
+    def copy(self):
+        return State(
+            self.x.copy(),
+            self.y.copy(),
+            self.z.copy(),
+            self.lam.copy(),
+            self.xsi.copy(),
+            self.eta.copy(),
+            self.mu.copy(),
+            self.zet.copy(),
+            self.s.copy(),
+        )
+
+
 def subsolv(
     m: int,
     n: int,
@@ -493,17 +537,20 @@ def subsolv(
     een = np.ones((n, 1))
     eem = np.ones((m, 1))
     epsi = 1
-    x = 0.5 * (alfa + beta)
-    y = eem.copy()
-    z = np.array([[1.0]])
-    lam = eem.copy()
-    xsi = een / (x - alfa)
-    xsi = np.maximum(xsi, een)
-    eta = een / (beta - x)
-    eta = np.maximum(eta, een)
-    mu = np.maximum(eem, 0.5 * c)
-    zet = np.array([[1.0]])
-    s = eem.copy()
+
+    # x = 0.5 * (alfa + beta)
+    # y = eem.copy()
+    # z = np.array([[1.0]])
+    # lam = eem.copy()
+    # xsi = 1 / (x - alfa)
+    # xsi = np.maximum(xsi, een)
+    # eta = 1 / (beta - x)
+    # eta = np.maximum(eta, een)
+    # mu = np.maximum(eem, 0.5 * c)
+    # zet = np.array([[1.0]])
+    # s = eem.copy()
+
+    state = State.from_apha_beta(n, m, alfa, beta, c)
 
     # A small positive number to ensure numerical stability.
     epsimin = 1e-7
@@ -511,19 +558,20 @@ def subsolv(
     # Start while loop for numerical stability
     while epsi > epsimin:
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
-        plam = p0 + np.dot(P.T, lam)
-        qlam = q0 + np.dot(Q.T, lam)
-        gvec = P @ (1 / (upp - x)) + Q @ (1 / (x - low))
-        dpsidx = plam / (upp - x) ** 2 - qlam / (x - low) ** 2
-        rex = dpsidx - xsi + eta
-        rey = c + d * y - mu - lam
-        rez = a0 - zet - a.T @ lam
-        relam = gvec - a * z - y + s - b
-        rexsi = xsi * (x - alfa) - epsi
-        reeta = eta * (beta - x) - epsi
-        remu = mu * y - epsi
-        rezet = zet * z - epsi
-        res = lam * s - epsi
+        plam = p0 + np.dot(P.T, state.lam)
+        qlam = q0 + np.dot(Q.T, state.lam)
+        gvec = P @ (1 / (upp - state.x)) + Q @ (1 / (state.x - low))
+        dpsidx = plam / (upp - state.x) ** 2 - qlam / (state.x - low) ** 2
+
+        rex = dpsidx - state.xsi + state.eta
+        rey = c + d * state.y - state.mu - state.lam
+        rez = a0 - state.zet - a.T @ state.lam
+        relam = gvec - a * state.z - state.y + state.s - b
+        rexsi = state.xsi * (state.x - alfa) - epsi
+        reeta = state.eta * (beta - state.x) - epsi
+        remu = state.mu * state.y - epsi
+        rezet = state.zet * state.z - epsi
+        res = state.lam * state.s - epsi
 
         # Form residual vector, i.e. the right-hand-side at top Section 5.3.
         residu1 = np.concatenate((rex, rey, rez), axis=0)
@@ -539,8 +587,8 @@ def subsolv(
             if residumax <= 0.9 * epsi:
                 break
 
-            ux1 = upp - x
-            xl1 = x - low
+            ux1 = upp - state.x
+            xl1 = state.x - low
             ux2 = ux1 * ux1
             xl2 = xl1 * xl1
             ux3 = ux1 * ux2
@@ -549,23 +597,27 @@ def subsolv(
             xlinv1 = een / xl1
             uxinv2 = een / ux2
             xlinv2 = een / xl2
-            plam = p0 + np.dot(P.T, lam)
-            qlam = q0 + np.dot(Q.T, lam)
+            plam = p0 + np.dot(P.T, state.lam)
+            qlam = q0 + np.dot(Q.T, state.lam)
             gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
             GG = (diags(uxinv2.flatten(), 0).dot(P.T)).T - (
                 diags(xlinv2.flatten(), 0).dot(Q.T)
             ).T
             dpsidx = plam / ux2 - qlam / xl2
-            delx = dpsidx - epsi / (x - alfa) + epsi / (beta - x)
-            dely = c + d * y - lam - epsi / y
-            delz = a0 - np.dot(a.T, lam) - epsi / z
-            dellam = gvec - a * z - y - b + epsi / lam
+            delx = dpsidx - epsi / (state.x - alfa) + epsi / (beta - state.x)
+            dely = c + d * state.y - state.lam - epsi / state.y
+            delz = a0 - np.dot(a.T, state.lam) - epsi / state.z
+            dellam = gvec - a * state.z - state.y - b + epsi / state.lam
             diagx = plam / ux3 + qlam / xl3
-            diagx = 2 * diagx + xsi / (x - alfa) + eta / (beta - x)
+            diagx = (
+                2 * diagx
+                + state.xsi / (state.x - alfa)
+                + state.eta / (beta - state.x)
+            )
             diagxinv = een / diagx
-            diagy = d + mu / y
+            diagy = d + state.mu / state.y
             diagyinv = eem / diagy
-            diaglam = s / lam
+            diaglam = state.s / state.lam
             diaglamyi = diaglam + diagyinv
 
             # Solve system of equations
@@ -585,7 +637,7 @@ def subsolv(
                     + (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T)
                 )
                 AAr1 = np.concatenate((Alam, a), axis=1)
-                AAr2 = np.concatenate((a, -zet / z), axis=0).T
+                AAr2 = np.concatenate((a, -state.zet / state.z), axis=0).T
                 AA = np.concatenate((AAr1, AAr2), axis=0)
                 solut = solve(AA, bb)
                 dlam = solut[0:m]
@@ -602,7 +654,7 @@ def subsolv(
                     diags(diagx.flatten(), 0)
                     + (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG)
                 )
-                azz = zet / z + np.dot(a.T, (a / diaglamyi))
+                azz = state.zet / state.z + np.dot(a.T, (a / diaglamyi))
                 axz = np.dot(-GG.T, (a / diaglamyi))
                 bx = delx + np.dot(GG.T, (dellamyi / diaglamyi))
                 bz = delz - np.dot(a.T, (dellamyi / diaglamyi))
@@ -623,17 +675,38 @@ def subsolv(
             # solutions of delta's. This is the solution of a Newton step
             # as specified at the start of Section 5.3.
             dy = -dely / diagy + dlam / diagy
-            dxsi = -xsi + epsi / (x - alfa) - (xsi * dx) / (x - alfa)
-            deta = -eta + epsi / (beta - x) + (eta * dx) / (beta - x)
-            dmu = -mu + epsi / y - (mu * dy) / y
-            dzet = -zet + epsi / z - zet * dz / z
-            ds = -s + epsi / lam - (s * dlam) / lam
-            xx = np.concatenate((y, z, lam, xsi, eta, mu, zet, s), axis=0)
+            dxsi = (
+                -state.xsi
+                + epsi / (state.x - alfa)
+                - (state.xsi * dx) / (state.x - alfa)
+            )
+            deta = (
+                -state.eta
+                + epsi / (beta - state.x)
+                + (state.eta * dx) / (beta - state.x)
+            )
+            dmu = -state.mu + epsi / state.y - (state.mu * dy) / state.y
+            dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
+            ds = -state.s + epsi / state.lam - (state.s * dlam) / state.lam
+
+            xx = np.concatenate(
+                (
+                    state.y,
+                    state.z,
+                    state.lam,
+                    state.xsi,
+                    state.eta,
+                    state.mu,
+                    state.zet,
+                    state.s,
+                ),
+                axis=0,
+            )
             dxx = np.concatenate(
                 (dy, dz, dlam, dxsi, deta, dmu, dzet, ds), axis=0
             )
 
-            x, y, z, lam, xsi, eta, mu, zet, s, residumax = line_search(
+            state, residumax = line_search(
                 # newton solution
                 xx,
                 dxx,
@@ -648,15 +721,7 @@ def subsolv(
                 P,
                 Q,
                 # current state
-                x,
-                y,
-                z,
-                lam,
-                xsi,
-                eta,
-                mu,
-                zet,
-                s,
+                state,
                 # derivative
                 dx,
                 dy,
@@ -681,15 +746,15 @@ def subsolv(
 
         epsi = 0.1 * epsi
 
-    xmma = x.copy()
-    ymma = y.copy()
-    zmma = z.copy()
-    lamma = lam
-    xsimma = xsi
-    etamma = eta
-    mumma = mu
-    zetmma = zet
-    smma = s
+    xmma = state.x.copy()
+    ymma = state.y.copy()
+    zmma = state.z.copy()
+    lamma = state.lam
+    xsimma = state.xsi
+    etamma = state.eta
+    mumma = state.mu
+    zetmma = state.zet
+    smma = state.s
 
     return xmma, ymma, zmma, lamma, xsimma, etamma, mumma, zetmma, smma
 
@@ -709,15 +774,7 @@ def line_search(
     P,
     Q,
     # current state
-    x,
-    y,
-    z,
-    lam,
-    xsi,
-    eta,
-    mu,
-    zet,
-    s,
+    state,
     # derivative
     dx,
     dy,
@@ -749,14 +806,13 @@ def line_search(
     indicated in Section 5.4.
     """
     een = np.ones((n, 1))
-    eem = np.ones((m, 1))
 
     # Step length determination
     stepxx = -1.01 * dxx / xx
     stmxx = np.max(stepxx)
-    stepalfa = -1.01 * dx / (x - alfa)
+    stepalfa = -1.01 * dx / (state.x - alfa)
     stmalfa = np.max(stepalfa)
-    stepbeta = 1.01 * dx / (beta - x)
+    stepbeta = 1.01 * dx / (beta - state.x)
     stmbeta = np.max(stepbeta)
     stmalbe = np.maximum(stmalfa, stmbeta)
     stmalbexx = np.maximum(stmalbe, stmxx)
@@ -764,15 +820,7 @@ def line_search(
     steg = 1.0 / stminv
 
     # Update variables
-    xold = x.copy()
-    yold = y.copy()
-    zold = z.copy()
-    lamold = lam.copy()
-    xsiold = xsi.copy()
-    etaold = eta.copy()
-    muold = mu.copy()
-    zetold = zet.copy()
-    sold = s.copy()
+    old = state.copy()
 
     itto = 0
     resinew = 2 * residunorm
@@ -781,34 +829,37 @@ def line_search(
         if resinew <= residunorm:
             break
 
-        x = xold + steg * dx
-        y = yold + steg * dy
-        z = zold + steg * dz
-        lam = lamold + steg * dlam
-        xsi = xsiold + steg * dxsi
-        eta = etaold + steg * deta
-        mu = muold + steg * dmu
-        zet = zetold + steg * dzet
-        s = sold + steg * ds
-        ux1 = upp - x
-        xl1 = x - low
+        state.x = old.x + steg * dx
+        state.y = old.y + steg * dy
+        state.z = old.z + steg * dz
+        state.lam = old.lam + steg * dlam
+        state.xsi = old.xsi + steg * dxsi
+        state.eta = old.eta + steg * deta
+        state.mu = old.mu + steg * dmu
+        state.zet = old.zet + steg * dzet
+        state.s = old.s + steg * ds
+
+        ux1 = upp - state.x
+        xl1 = state.x - low
         ux2 = ux1 * ux1
         xl2 = xl1 * xl1
         uxinv1 = een / ux1
         xlinv1 = een / xl1
-        plam = p0 + np.dot(P.T, lam)
-        qlam = q0 + np.dot(Q.T, lam)
+        plam = p0 + np.dot(P.T, state.lam)
+        qlam = q0 + np.dot(Q.T, state.lam)
         gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
         dpsidx = plam / ux2 - qlam / xl2
-        rex = dpsidx - xsi + eta
-        rey = c + d * y - mu - lam
-        rez = a0 - zet - np.dot(a.T, lam)
-        relam = gvec - a * z - y + s - b
-        rexsi = xsi * (x - alfa) - epsi
-        reeta = eta * (beta - x) - epsi
-        remu = mu * y - epsi
-        rezet = zet * z - epsi
-        res = lam * s - epsi
+
+        rex = dpsidx - state.xsi + state.eta
+        rey = c + d * state.y - state.mu - state.lam
+        rez = a0 - state.zet - np.dot(a.T, state.lam)
+        relam = gvec - a * state.z - state.y + state.s - b
+        rexsi = state.xsi * (state.x - alfa) - epsi
+        reeta = state.eta * (beta - state.x) - epsi
+        remu = state.mu * state.y - epsi
+        rezet = state.zet * state.z - epsi
+        res = state.lam * state.s - epsi
+
         residu1 = np.concatenate((rex, rey, rez), axis=0)
         residu2 = np.concatenate(
             (relam, rexsi, reeta, remu, rezet, res), axis=0
@@ -820,7 +871,7 @@ def line_search(
     residumax = np.max(np.abs(residu))
     steg = 2 * steg
 
-    return x, y, z, lam, xsi, eta, mu, zet, s, residumax
+    return state, residumax
 
 
 def kktcheck(
