@@ -489,11 +489,10 @@ def subsolv(
             - lagrange (np.ndarray): Lagrange multipliers for the constraints.
     """
 
+    # Initial problem state as given in Section 5.5 beginning.
     een = np.ones((n, 1))
     eem = np.ones((m, 1))
     epsi = 1
-    epsvecn = epsi * een
-    epsvecm = epsi * eem
     x = 0.5 * (alfa + beta)
     y = eem.copy()
     z = np.array([[1.0]])
@@ -505,34 +504,28 @@ def subsolv(
     mu = np.maximum(eem, 0.5 * c)
     zet = np.array([[1.0]])
     s = eem.copy()
-    itera = 0
 
     # A small positive number to ensure numerical stability.
-    epsimin = 0.0000001
+    epsimin = 1e-7
 
     # Start while loop for numerical stability
     while epsi > epsimin:
-        epsvecn = epsi * een
-        epsvecm = epsi * eem
-        ux1 = upp - x
-        xl1 = x - low
-        ux2 = ux1 * ux1
-        xl2 = xl1 * xl1
-        uxinv1 = een / ux1
-        xlinv1 = een / xl1
+        # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
         plam = p0 + np.dot(P.T, lam)
         qlam = q0 + np.dot(Q.T, lam)
-        gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-        dpsidx = plam / ux2 - qlam / xl2
+        gvec = P @ (1 / (upp - x)) + Q @ (1 / (x - low))
+        dpsidx = plam / (upp - x) ** 2 - qlam / (x - low) ** 2
         rex = dpsidx - xsi + eta
         rey = c + d * y - mu - lam
-        rez = a0 - zet - np.dot(a.T, lam)
+        rez = a0 - zet - a.T @ lam
         relam = gvec - a * z - y + s - b
-        rexsi = xsi * (x - alfa) - epsvecn
-        reeta = eta * (beta - x) - epsvecn
-        remu = mu * y - epsvecm
+        rexsi = xsi * (x - alfa) - epsi
+        reeta = eta * (beta - x) - epsi
+        remu = mu * y - epsi
         rezet = zet * z - epsi
-        res = lam * s - epsvecm
+        res = lam * s - epsi
+
+        # Form residual vector, i.e. the right-hand-side at top Section 5.3.
         residu1 = np.concatenate((rex, rey, rez), axis=0)
         residu2 = np.concatenate(
             (relam, rexsi, reeta, remu, rezet, res), axis=0
@@ -540,12 +533,12 @@ def subsolv(
         residu = np.concatenate((residu1, residu2), axis=0)
         residunorm = np.sqrt(np.dot(residu.T, residu).item())
         residumax = np.max(np.abs(residu))
-        ittt = 0
 
         # Start inner while loop for optimization
-        while (residumax > 0.9 * epsi) and (ittt < 200):
-            ittt += 1
-            itera += 1
+        for ittt in range(200):
+            if residumax <= 0.9 * epsi:
+                break
+
             ux1 = upp - x
             xl1 = x - low
             ux2 = ux1 * ux1
@@ -563,10 +556,10 @@ def subsolv(
                 diags(xlinv2.flatten(), 0).dot(Q.T)
             ).T
             dpsidx = plam / ux2 - qlam / xl2
-            delx = dpsidx - epsvecn / (x - alfa) + epsvecn / (beta - x)
-            dely = c + d * y - lam - epsvecm / y
+            delx = dpsidx - epsi / (x - alfa) + epsi / (beta - x)
+            dely = c + d * y - lam - epsi / y
             delz = a0 - np.dot(a.T, lam) - epsi / z
-            dellam = gvec - a * z - y - b + epsvecm / lam
+            dellam = gvec - a * z - y - b + epsi / lam
             diagx = plam / ux3 + qlam / xl3
             diagx = 2 * diagx + xsi / (x - alfa) + eta / (beta - x)
             diagxinv = een / diagx
@@ -576,7 +569,15 @@ def subsolv(
             diaglamyi = diaglam + diagyinv
 
             # Solve system of equations
-            if m < n:
+            # The size of design variables and constraint functions play
+            # a role in determining how to solve the primal-dual problem.
+            # The paper expands on this at the end of Section 5.3.
+            # TODO: Consider to move more of that discussion here.
+
+            if n > m:
+                # Delta x is eliminated (Equation 5.19) and the system
+                # of equations in delta lambda, delta z is constructed.
+                # This represents Equation 5.20.
                 blam = dellam + dely / diagy - np.dot(GG, (delx / diagx))
                 bb = np.concatenate((blam, delz), axis=0)
                 Alam = np.asarray(
@@ -592,6 +593,9 @@ def subsolv(
                 dz = solut[m : m + 1]
                 dx = -delx / diagx - np.dot(GG.T, dlam) / diagx
             else:
+                # Delta lambda is eliminated (Equation 5.21) and the system
+                # of equations in delta x, delta z is constructed. This
+                # represents Equation 5.22.
                 diaglamyiinv = eem / diaglamyi
                 dellamyi = dellam + dely / diagy
                 Axx = np.asarray(
@@ -615,83 +619,65 @@ def subsolv(
                     + dellamyi / diaglamyi
                 )
 
+            # Back substitute the solutions found to reconstruct the full
+            # solutions of delta's. This is the solution of a Newton step
+            # as specified at the start of Section 5.3.
             dy = -dely / diagy + dlam / diagy
-            dxsi = -xsi + epsvecn / (x - alfa) - (xsi * dx) / (x - alfa)
-            deta = -eta + epsvecn / (beta - x) + (eta * dx) / (beta - x)
-            dmu = -mu + epsvecm / y - (mu * dy) / y
+            dxsi = -xsi + epsi / (x - alfa) - (xsi * dx) / (x - alfa)
+            deta = -eta + epsi / (beta - x) + (eta * dx) / (beta - x)
+            dmu = -mu + epsi / y - (mu * dy) / y
             dzet = -zet + epsi / z - zet * dz / z
-            ds = -s + epsvecm / lam - (s * dlam) / lam
+            ds = -s + epsi / lam - (s * dlam) / lam
             xx = np.concatenate((y, z, lam, xsi, eta, mu, zet, s), axis=0)
             dxx = np.concatenate(
                 (dy, dz, dlam, dxsi, deta, dmu, dzet, ds), axis=0
             )
 
-            # Step length determination
-            stepxx = -1.01 * dxx / xx
-            stmxx = np.max(stepxx)
-            stepalfa = -1.01 * dx / (x - alfa)
-            stmalfa = np.max(stepalfa)
-            stepbeta = 1.01 * dx / (beta - x)
-            stmbeta = np.max(stepbeta)
-            stmalbe = np.maximum(stmalfa, stmbeta)
-            stmalbexx = np.maximum(stmalbe, stmxx)
-            stminv = np.maximum(stmalbexx, 1.0)
-            steg = 1.0 / stminv
-
-            # Update variables
-            xold = x.copy()
-            yold = y.copy()
-            zold = z.copy()
-            lamold = lam.copy()
-            xsiold = xsi.copy()
-            etaold = eta.copy()
-            muold = mu.copy()
-            zetold = zet.copy()
-            sold = s.copy()
-
-            itto = 0
-            resinew = 2 * residunorm
-
-            while (resinew > residunorm) and (itto < 50):
-                itto += 1
-                x = xold + steg * dx
-                y = yold + steg * dy
-                z = zold + steg * dz
-                lam = lamold + steg * dlam
-                xsi = xsiold + steg * dxsi
-                eta = etaold + steg * deta
-                mu = muold + steg * dmu
-                zet = zetold + steg * dzet
-                s = sold + steg * ds
-                ux1 = upp - x
-                xl1 = x - low
-                ux2 = ux1 * ux1
-                xl2 = xl1 * xl1
-                uxinv1 = een / ux1
-                xlinv1 = een / xl1
-                plam = p0 + np.dot(P.T, lam)
-                qlam = q0 + np.dot(Q.T, lam)
-                gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-                dpsidx = plam / ux2 - qlam / xl2
-                rex = dpsidx - xsi + eta
-                rey = c + d * y - mu - lam
-                rez = a0 - zet - np.dot(a.T, lam)
-                relam = gvec - a * z - y + s - b
-                rexsi = xsi * (x - alfa) - epsvecn
-                reeta = eta * (beta - x) - epsvecn
-                remu = mu * y - epsvecm
-                rezet = zet * z - epsi
-                res = lam * s - epsvecm
-                residu1 = np.concatenate((rex, rey, rez), axis=0)
-                residu2 = np.concatenate(
-                    (relam, rexsi, reeta, remu, rezet, res), axis=0
-                )
-                residu = np.concatenate((residu1, residu2), axis=0)
-                resinew = np.sqrt(np.dot(residu.T, residu))
-                steg = steg / 2
-            residunorm = resinew.copy()
-            residumax = np.max(np.abs(residu))
-            steg = 2 * steg
+            x, y, z, lam, xsi, eta, mu, zet, s, residumax = line_search(
+                # newton solution
+                xx,
+                dxx,
+                # bounds
+                low,
+                upp,
+                alfa,
+                beta,
+                # approximations
+                p0,
+                q0,
+                P,
+                Q,
+                # current state
+                x,
+                y,
+                z,
+                lam,
+                xsi,
+                eta,
+                mu,
+                zet,
+                s,
+                # derivative
+                dx,
+                dy,
+                dz,
+                dlam,
+                dxsi,
+                deta,
+                dmu,
+                dzet,
+                ds,
+                # parameters
+                a0,
+                a,
+                b,
+                c,
+                d,
+                epsi,
+                residunorm,
+                n,
+                m,
+            )
 
         epsi = 0.1 * epsi
 
@@ -706,6 +692,135 @@ def subsolv(
     smma = s
 
     return xmma, ymma, zmma, lamma, xsimma, etamma, mumma, zetmma, smma
+
+
+def line_search(
+    # newton solution
+    xx,
+    dxx,
+    # bounds
+    low,
+    upp,
+    alfa,
+    beta,
+    # approximations
+    p0,
+    q0,
+    P,
+    Q,
+    # current state
+    x,
+    y,
+    z,
+    lam,
+    xsi,
+    eta,
+    mu,
+    zet,
+    s,
+    # derivative
+    dx,
+    dy,
+    dz,
+    dlam,
+    dxsi,
+    deta,
+    dmu,
+    dzet,
+    ds,
+    # parameters
+    a0,
+    a,
+    b,
+    c,
+    d,
+    epsi,
+    residunorm,
+    n,
+    m,
+):
+    """Line search along Newton descent direction.
+
+
+    Line search into the Newton direction, Section 5.4.
+    This aims to find a step into the Newton direction without
+    violating any of the constraints, which might happen when taking
+    the full Newton step. The specifications of a "good" step are
+    indicated in Section 5.4.
+    """
+    een = np.ones((n, 1))
+    eem = np.ones((m, 1))
+
+    # Step length determination
+    stepxx = -1.01 * dxx / xx
+    stmxx = np.max(stepxx)
+    stepalfa = -1.01 * dx / (x - alfa)
+    stmalfa = np.max(stepalfa)
+    stepbeta = 1.01 * dx / (beta - x)
+    stmbeta = np.max(stepbeta)
+    stmalbe = np.maximum(stmalfa, stmbeta)
+    stmalbexx = np.maximum(stmalbe, stmxx)
+    stminv = np.maximum(stmalbexx, 1.0)
+    steg = 1.0 / stminv
+
+    # Update variables
+    xold = x.copy()
+    yold = y.copy()
+    zold = z.copy()
+    lamold = lam.copy()
+    xsiold = xsi.copy()
+    etaold = eta.copy()
+    muold = mu.copy()
+    zetold = zet.copy()
+    sold = s.copy()
+
+    itto = 0
+    resinew = 2 * residunorm
+
+    for itto in range(50):
+        if resinew <= residunorm:
+            break
+
+        x = xold + steg * dx
+        y = yold + steg * dy
+        z = zold + steg * dz
+        lam = lamold + steg * dlam
+        xsi = xsiold + steg * dxsi
+        eta = etaold + steg * deta
+        mu = muold + steg * dmu
+        zet = zetold + steg * dzet
+        s = sold + steg * ds
+        ux1 = upp - x
+        xl1 = x - low
+        ux2 = ux1 * ux1
+        xl2 = xl1 * xl1
+        uxinv1 = een / ux1
+        xlinv1 = een / xl1
+        plam = p0 + np.dot(P.T, lam)
+        qlam = q0 + np.dot(Q.T, lam)
+        gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
+        dpsidx = plam / ux2 - qlam / xl2
+        rex = dpsidx - xsi + eta
+        rey = c + d * y - mu - lam
+        rez = a0 - zet - np.dot(a.T, lam)
+        relam = gvec - a * z - y + s - b
+        rexsi = xsi * (x - alfa) - epsi
+        reeta = eta * (beta - x) - epsi
+        remu = mu * y - epsi
+        rezet = zet * z - epsi
+        res = lam * s - epsi
+        residu1 = np.concatenate((rex, rey, rez), axis=0)
+        residu2 = np.concatenate(
+            (relam, rexsi, reeta, remu, rezet, res), axis=0
+        )
+        residu = np.concatenate((residu1, residu2), axis=0)
+        resinew = np.sqrt(np.dot(residu.T, residu))
+        steg = steg / 2
+
+    residumax = np.max(np.abs(residu))
+    steg = 2 * steg
+
+    return x, y, z, lam, xsi, eta, mu, zet, s, residumax
 
 
 def kktcheck(
