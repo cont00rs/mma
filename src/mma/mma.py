@@ -24,20 +24,74 @@ according to the specific problem being solved.
 # Loading modules
 from __future__ import division
 
+from dataclasses import dataclass
 from typing import Tuple
 
 import numpy as np
 from scipy.linalg import solve  # or use numpy: from numpy.linalg import solve
-from scipy.sparse import diags  # or use numpy: from numpy import diag as diags
+from scipy.sparse import (
+    diags,
+    diags_array,
+    issparse,
+)
+
+
+class Bounds:
+    """Container for the variable bounds."""
+
+    def __init__(self, lb=-np.inf, ub=np.inf):
+        if issparse(lb) or issparse(ub):
+            message = "Lower and upper bounds must be dense arrays."
+            raise ValueError(message)
+
+        self.lb = np.atleast_1d(lb)
+        self.ub = np.atleast_1d(ub)
+
+    def lower(self):
+        return self.lb
+
+    def upper(self):
+        return self.ub
+
+    def delta(self):
+        return self.ub - self.lb
+
+
+@dataclass
+class Options:
+    """
+    MMA Algorithm options
+
+    Attributes:
+        iteration_count: Maximum number of outer iterations.
+        move_limit: Move limit for the design variables.
+        asyinit: Factor to calculate the initial distance of the asymptotes.
+        asydecr: Factor by which the asymptotes distance is decreased.
+        asyincr: Factor by which the asymptotes distance is increased.
+        asymin: Factor to calculate the minimum distance of the asymptotes.
+        asymax: Factor to calculate the maximum distance of the asymptotes.
+        raa0: Parameter representing the function approximation's accuracy.
+        alpha_factor: Factor to calculate the bounds alpha.
+        beta_factor: Factor to calculate the bounds beta.
+    """
+
+    iteration_count: int
+    move_limit: float = 0.5
+    asyinit: float = 0.5
+    asydecr: float = 0.7
+    asyincr: float = 1.2
+    asymin: float = 0.01
+    asymax: float = 10
+    raa0: float = 0.00001
+    beta_factor: float = 0.1
+    alpha_factor: float = 0.1
 
 
 def mma(
     x: np.ndarray,
     func: callable,
-    lower_bound,
-    upper_bound,
-    maxoutit,
-    move,
+    bounds: Bounds,
+    options: Options,
 ):
     """Driver of the MMA optimization.
 
@@ -51,14 +105,10 @@ def mma(
 
     # Initialisation.
     xval = x.copy()
-    xold1 = xval.copy()
-    xold2 = xval.copy()
 
     # Lower, upper bounds
-    xmin = lower_bound * np.ones((n, 1))
-    xmax = upper_bound * np.ones((n, 1))
-    low = xmin.copy()
-    upp = xmax.copy()
+    low = bounds.lb.copy()
+    upp = bounds.ub.copy()
 
     c = 1000 * np.ones((m, 1))
 
@@ -70,7 +120,6 @@ def mma(
     a = np.zeros((m, 1))
     d = np.ones((m, 1))
 
-    outeriter = 0
     kkttol = 0
 
     # Test output
@@ -80,40 +129,37 @@ def mma(
 
     # The iterations start
     kktnorm = kkttol + 10
-    outit = 0
 
-    while kktnorm > kkttol and outit < maxoutit:
-        outit += 1
-        outeriter += 1
+    # FIXME: Should c, a0, a, d also be considered "options"?
+    subproblem = SubProblem(options)
+
+    for _ in range(options.iteration_count):
+        if kktnorm <= kkttol:
+            break
 
         f0val, df0dx, fval, dfdx = func(xval)
 
         # The MMA subproblem is solved at the point xval:
-        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = mmasub(
-            m,
-            n,
-            outeriter,
-            xval,
-            xmin,
-            xmax,
-            xold1,
-            xold2,
-            f0val,
-            df0dx,
-            fval,
-            dfdx,
-            low,
-            upp,
-            a0,
-            a,
-            c,
-            d,
-            move,
+        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = (
+            subproblem.mmasub(
+                m,
+                n,
+                xval,
+                bounds,
+                f0val,
+                df0dx,
+                fval,
+                dfdx,
+                low,
+                upp,
+                a0,
+                a,
+                c,
+                d,
+            )
         )
 
         # Some vectors are updated:
-        xold2 = xold1.copy()
-        xold1 = xval.copy()
         xval = xmma.copy()
 
         # Re-calculate function values, gradients
@@ -132,8 +178,7 @@ def mma(
             mu,
             zet,
             s,
-            xmin,
-            xmax,
+            bounds,
             df0dx,
             fval,
             dfdx,
@@ -148,182 +193,242 @@ def mma(
         outvector1s += [outvector1.flatten()]
         outvector2s += [outvector2]
         kktnorms += [kktnorm]
+    else:
+        count = options.iteration_count
+        msg = f"MMA did not converge within iteration limit ({count})"
+        print(msg)
 
     return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
 
 
-def mmasub(
-    m: int,
-    n: int,
-    iter: int,
-    xval: np.ndarray,
-    xmin: np.ndarray,
-    xmax: np.ndarray,
-    xold1: np.ndarray,
-    xold2: np.ndarray,
-    f0val: float,
-    df0dx: np.ndarray,
-    fval: np.ndarray,
-    dfdx: np.ndarray,
-    low: np.ndarray,
-    upp: np.ndarray,
-    a0: float,
-    a: np.ndarray,
-    c: np.ndarray,
-    d: np.ndarray,
-    move: float = 0.5,
-    asyinit: float = 0.5,
-    asydecr: float = 0.7,
-    asyincr: float = 1.2,
-    asymin: float = 0.01,
-    asymax: float = 10,
-    raa0: float = 0.00001,
-    albefa: float = 0.1,
-) -> Tuple[
-    np.ndarray,
-    np.ndarray,
-    float,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    float,
-    np.ndarray,
-    np.ndarray,
-]:
-    """
-    Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
+class SubProblem:
+    def __init__(self, options: Options):
+        self.options = options
 
-    Minimize:
-        f_0(x) + a_0 * z + sum(c_i * y_i + 0.5 * d_i * (y_i)^2)
+        # xold1 (np.ndarray): Design variables from one iteration ago.
+        self.xold1 = None
+        # xold2 (np.ndarray): Design variables from two iterations ago.
+        self.xold2 = None
 
-    Subject to:
-        f_i(x) - a_i * z - y_i <= 0,    i = 1,...,m
-        xmin_j <= x_j <= xmax_j,        j = 1,...,n
-        z >= 0, y_i >= 0,               i = 1,...,m
+    def mmasub(
+        self,
+        m: int,
+        n: int,
+        xval: np.ndarray,
+        bounds: Bounds,
+        f0val: float,
+        df0dx: np.ndarray,
+        fval: np.ndarray,
+        dfdx: np.ndarray,
+        low: np.ndarray,
+        upp: np.ndarray,
+        a0: float,
+        a: np.ndarray,
+        c: np.ndarray,
+        d: np.ndarray,
+    ) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        float,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        float,
+        np.ndarray,
+        np.ndarray,
+    ]:
+        """
+        Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
-    Args:
-        m (int): Number of constraints.
-        n (int): Number of variables.
-        iter (int): Current iteration number (1 for the first call to mmasub).
-        xval (np.ndarray): Current values of the design variables.
-        xmin (np.ndarray): Lower bounds for the design variables.
-        xmax (np.ndarray): Upper bounds for the design variables.
-        xold1 (np.ndarray): Design variables from one iteration ago (provided that iter > 1).
-        xold2 (np.ndarray): Design variables from two iterations ago (provided that iter > 2).
-        f0val (float): Objective function value at xval.
-        df0dx (np.ndarray): Gradient of the objective function at xval.
-        fval (np.ndarray): Constraint function values at xval.
-        dfdx (np.ndarray): Gradient of the constraint functions at xval.
-        low (np.ndarray): Lower bounds for the variables from the previous iteration (provided that iter > 1).
-        upp (np.ndarray): Upper bounds for the variables from the previous iteration (provided that iter > 1).
-        a0 (float): Constant in the term a_0 * z.
-        a (np.ndarray): Coefficients for the term a_i * z.
-        c (np.ndarray): Coefficients for the term c_i * y_i.
-        d (np.ndarray): Coefficients for the term 0.5 * d_i * (y_i)^2.
-        move (float): Move limit for the design variables. The default is 0.5.
-        asyinit (float): Factor to calculate the initial distance of the asymptotes. The default value is 0.5.
-        asydecr (float): Factor by which the asymptotes distance is decreased. The default value is 0.7.
-        asyincr (float): Factor by which the asymptotes distance is increased. The default value is 1.2.
-        asymin (float): Factor to calculate the minimum distance of the asymptotes. The default value is 0.01.
-        asymax (float): Factor to calculate the maximum distance of the asymptotes. The default value is 10.
-        raa0 (float): Parameter representing the function approximation's accuracy. The default value is 0.00001.
-        albefa (float): Factor to calculate the bounds alfa and beta. The default value is 0.1.
+        Minimize:
+            f_0(x) + a_0 * z + sum(c_i * y_i + 0.5 * d_i * (y_i)^2)
 
-    Returns:
-        Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
-            - xmma (np.ndarray): Optimal values of the design variables.
-            - ymma (np.ndarray): Optimal values of the slack variables for constraints.
-            - zmma (float): Optimal value of the regularization variable z.
-            - lam (np.ndarray): Lagrange multipliers for the constraints.
-            - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
-            - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
-            - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
-            - zet (float): Lagrange multiplier for the regularization term z.
-            - s (np.ndarray): Slack variables for the general constraints.
-            - low (np.ndarray): Updated lower bounds for the design variables.
-            - upp (np.ndarray): Updated upper bounds for the design variables.
-    """
+        Subject to:
+            f_i(x) - a_i * z - y_i <= 0,    i = 1,...,m
+            xmin_j <= x_j <= xmax_j,        j = 1,...,n
+            z >= 0, y_i >= 0,               i = 1,...,m
 
-    epsimin = 0.0000001
-    eeen = np.ones((n, 1), dtype=float)
-    eeem = np.ones((m, 1), dtype=float)
-    zeron = np.zeros((n, 1), dtype=float)
+        Args:
+            m (int): Number of constraints.
+            n (int): Number of variables.
+            xval (np.ndarray): Current values of the design variables.
+            bounds (Bounds): Lower (xmin_j) and upper (xmax_j) bounds of the design variables.
+            f0val (float): Objective function value at xval.
+            df0dx (np.ndarray): Gradient of the objective function at xval.
+            fval (np.ndarray): Constraint function values at xval.
+            dfdx (np.ndarray): Gradient of the constraint functions at xval.
+            low (np.ndarray): Lower bounds for the variables from the previous iteration (provided that iter > 1).
+            upp (np.ndarray): Upper bounds for the variables from the previous iteration (provided that iter > 1).
+            a0 (float): Constant in the term a_0 * z.
+            a (np.ndarray): Coefficients for the term a_i * z.
+            c (np.ndarray): Coefficients for the term c_i * y_i.
+            d (np.ndarray): Coefficients for the term 0.5 * d_i * (y_i)^2.
 
-    # Calculation of the asymptotes low and upp
-    if iter <= 2:
-        low = xval - asyinit * (xmax - xmin)
-        upp = xval + asyinit * (xmax - xmin)
-    else:
-        zzz = (xval - xold1) * (xold1 - xold2)
-        factor = eeen.copy()
-        factor[zzz > 0] = asyincr
-        factor[zzz < 0] = asydecr
-        low = xval - factor * (xold1 - low)
-        upp = xval + factor * (upp - xold1)
-        lowmin = xval - asymax * (xmax - xmin)
-        lowmax = xval - asymin * (xmax - xmin)
-        uppmin = xval + asymin * (xmax - xmin)
-        uppmax = xval + asymax * (xmax - xmin)
-        low = np.maximum(low, lowmin)
-        low = np.minimum(low, lowmax)
-        upp = np.minimum(upp, uppmax)
-        upp = np.maximum(upp, uppmin)
+        Returns:
+            Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
+                - xmma (np.ndarray): Optimal values of the design variables.
+                - ymma (np.ndarray): Optimal values of the slack variables for constraints.
+                - zmma (float): Optimal value of the regularization variable z.
+                - lam (np.ndarray): Lagrange multipliers for the constraints.
+                - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
+                - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
+                - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
+                - zet (float): Lagrange multiplier for the regularization term z.
+                - s (np.ndarray): Slack variables for the general constraints.
+                - low (np.ndarray): Updated lower bounds for the design variables.
+                - upp (np.ndarray): Updated upper bounds for the design variables.
+        """
+        # Calculation of the asymptotes low and upp.
+        low, upp = self.update_asymptotes(xval, bounds, low, upp)
 
-    # Calculation of the bounds alfa and beta
-    zzz1 = low + albefa * (xval - low)
-    zzz2 = xval - move * (xmax - xmin)
-    zzz = np.maximum(zzz1, zzz2)
-    alfa = np.maximum(zzz, xmin)
-    zzz1 = upp - albefa * (upp - xval)
-    zzz2 = xval + move * (xmax - xmin)
-    zzz = np.minimum(zzz1, zzz2)
-    beta = np.minimum(zzz, xmax)
+        # Calculation of the bounds alfa and beta.
+        alfa, beta = self.calculate_alpha_beta(xval, bounds, low, upp)
 
-    # Calculations of p0, q0, P, Q and b
-    xmami = xmax - xmin
-    xmami_eps = 0.00001 * eeen
-    xmami = np.maximum(xmami, xmami_eps)
-    xmami_inv = eeen / xmami
-    ux1 = upp - xval
-    ux2 = ux1 * ux1
-    xl1 = xval - low
-    xl2 = xl1 * xl1
-    ux_inv = eeen / ux1
-    xl_inv = eeen / xl1
-    p0 = zeron.copy()
-    q0 = zeron.copy()
-    p0 = np.maximum(df0dx, 0)
-    q0 = np.maximum(-df0dx, 0)
-    pq0 = 0.001 * (p0 + q0) + raa0 * xmami_inv
-    p0 = p0 + pq0
-    q0 = q0 + pq0
-    p0 = p0 * ux2
-    q0 = q0 * xl2
-    P = np.zeros((m, n), dtype=float)
-    Q = np.zeros((m, n), dtype=float)
-    P = np.maximum(dfdx, 0)
-    Q = np.maximum(-dfdx, 0)
-    PQ = 0.001 * (P + Q) + raa0 * np.dot(eeem, xmami_inv.T)
-    P = P + PQ
-    Q = Q + PQ
-    P = (diags(ux2.flatten(), 0).dot(P.T)).T
-    Q = (diags(xl2.flatten(), 0).dot(Q.T)).T
-    b = np.dot(P, ux_inv) + np.dot(Q, xl_inv) - fval
+        # Calculations approximating functions: P, Q.
+        p0, q0 = self.approximating_functions(
+            xval, df0dx, bounds, low, upp, objective=True
+        )
 
-    # Solving the subproblem using the primal-dual Newton method
-    xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
-        m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
-    )
+        P, Q = self.approximating_functions(
+            xval, dfdx, bounds, low, upp, objective=False
+        )
 
-    # Return values
-    return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
+        # Negative residual between approximating functions and objective
+        # as described in beginning of Section 5.
+        b = P @ (1 / (upp - xval)) + Q @ (1 / (xval - low)) - fval
+
+        # Solving the subproblem using the primal-dual Newton method
+        # FIXME: Move options for Newton method into dataclass.
+        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
+            m, n, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
+        )
+
+        # Store design variables of last two iterations.
+        self.xold2 = None if self.xold1 is None else self.xold1.copy()
+        self.xold1 = xval.copy()
+
+        # Return values
+        return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
+
+    def update_asymptotes(self, xval, bounds, low, upp):
+        """Calculation of the asymptotes low and upp.
+
+        This represents equations 3.11 to 3.14.
+        """
+
+        # The difference between upper and lower bounds.
+        delta = bounds.delta()
+
+        if self.xold1 is None or self.xold2 is None:
+            # Equation 3.11.
+            low = xval - self.options.asyinit * delta
+            upp = xval + self.options.asyinit * delta
+            return low, upp
+
+        # Extract sign of variable change from previous iterates.
+        signs = (xval - self.xold1) * (self.xold1 - self.xold2)
+
+        # Assign increase/decrease factoring depending on signs. Equation 3.13.
+        factor = np.ones_like(xval, dtype=float)
+        factor[signs > 0] = self.options.asyincr
+        factor[signs < 0] = self.options.asydecr
+
+        # Equation 3.12.
+        low = xval - factor * (self.xold1 - low)
+        upp = xval + factor * (upp - self.xold1)
+
+        # Limit asymptote change to maximum increase/decrease. Equation 3.14.
+        np.clip(
+            low,
+            a_min=xval - self.options.asymax * delta,
+            a_max=xval - self.options.asymin * delta,
+            out=low,
+        )
+
+        np.clip(
+            upp,
+            a_min=xval + self.options.asymin * delta,
+            a_max=xval + self.options.asymax * delta,
+            out=upp,
+        )
+
+        return low, upp
+
+    def calculate_alpha_beta(self, xval, bounds, low, upp):
+        """Calculation of the bounds alpha and beta.
+
+        Equations 3.6 and 3.7.
+        """
+
+        # Restrict lower bound with move limit.
+        lower_bound = np.maximum(
+            low + self.options.alpha_factor * (xval - low),
+            xval - self.options.move_limit * bounds.delta(),
+        )
+
+        # Restrict upper bound with move limit.
+        upper_bound = np.minimum(
+            upp - self.options.beta_factor * (upp - xval),
+            xval + self.options.move_limit * bounds.delta(),
+        )
+
+        # Restrict bounds with variable bounds.
+        alpha = np.maximum(lower_bound, bounds.lb)
+        beta = np.minimum(upper_bound, bounds.ub)
+
+        return alpha, beta
+
+    def approximating_functions(
+        self, xval, dfdx, bounds, low, upp, objective=True
+    ):
+        """Calculate approximating functions "P" and "Q".
+
+        Build components for approximation of objective and
+        constraint functions from lower/upper asymptotes and
+        current derivative information.
+
+        The routine calculations Equations 3.2 - 3.5 for the
+        objective function (f_0) and constraints (f_1 ... f_n).
+
+        Due to the layout of the constraint derivatives an
+        additional transpose is needed, controlled through the
+        objective keyword argument.
+        """
+
+        factor = 0.001
+
+        # Inverse bounds with eps to avoid divide by zero.
+        # Last component of equations 3.3 and 3.4.
+        eps_delta = 0.00001
+        delta_inv = 1 / np.maximum(bounds.delta(), eps_delta)
+
+        if objective:
+            df_plus = np.maximum(dfdx, 0)
+            df_minus = np.maximum(-dfdx, 0)
+        else:
+            df_plus = np.maximum(dfdx.T, 0)
+            df_minus = np.maximum(-dfdx.T, 0)
+
+        # Equation 3.3.
+        p0 = (1 + factor) * df_plus + factor * df_minus
+        p0 += self.options.raa0 * delta_inv
+        p0 = diags_array(((upp - xval) ** 2).squeeze(axis=1)) @ p0
+
+        # Equation 3.4.
+        q0 = factor * df_plus + (1 + factor) * df_minus
+        q0 += self.options.raa0 * delta_inv
+        q0 = diags_array(((xval - low) ** 2).squeeze(axis=1)) @ q0
+
+        if objective:
+            return p0, q0
+        else:
+            return p0.T, q0.T
 
 
 def subsolv(
     m: int,
     n: int,
-    epsimin: float,
     low: np.ndarray,
     upp: np.ndarray,
     alfa: np.ndarray,
@@ -361,7 +466,6 @@ def subsolv(
     Args:
         m (int): Number of constraints.
         n (int): Number of variables.
-        epsimin (float): A small positive number to ensure numerical stability.
         low (np.ndarray): Lower bounds for the variables x_j.
         upp (np.ndarray): Upper bounds for the variables x_j.
         alfa (np.ndarray): Lower asymptotes for the variables.
@@ -402,6 +506,9 @@ def subsolv(
     zet = np.array([[1.0]])
     s = eem.copy()
     itera = 0
+
+    # A small positive number to ensure numerical stability.
+    epsimin = 0.0000001
 
     # Start while loop for numerical stability
     while epsi > epsimin:
@@ -613,8 +720,7 @@ def kktcheck(
     mu: np.ndarray,
     zet: float,
     s: np.ndarray,
-    xmin: np.ndarray,
-    xmax: np.ndarray,
+    bounds: Bounds,
     df0dx: np.ndarray,
     fval: np.ndarray,
     dfdx: np.ndarray,
@@ -641,8 +747,7 @@ def kktcheck(
         mu (np.ndarray): Lagrange multipliers for the non-negativity constraints on slack variables.
         zet (float): Lagrange multiplier for the non-negativity constraint on z.
         s (np.ndarray): Slack variables for the general constraints.
-        xmin (np.ndarray): Lower bounds for the variables.
-        xmax (np.ndarray): Upper bounds for the variables.
+        bounds (Bounds): Lower and upper bounds for the variables.
         df0dx (np.ndarray): Gradient of the objective function with respect to the variables.
         fval (np.ndarray): Values of the constraint functions.
         dfdx (np.ndarray): Jacobian matrix of the constraint functions.
@@ -663,8 +768,8 @@ def kktcheck(
     rey = c + d * y - mu - lam
     rez = a0 - zet - np.dot(a.T, lam)
     relam = fval - a * z - y + s
-    rexsi = xsi * (x - xmin)
-    reeta = eta * (xmax - x)
+    rexsi = xsi * (x - bounds.lb)
+    reeta = eta * (bounds.ub - x)
     remu = mu * y
     rezet = zet * z
     res = lam * s
