@@ -24,67 +24,14 @@ according to the specific problem being solved.
 # Loading modules
 from __future__ import division
 
-from dataclasses import dataclass
 from typing import Tuple
 
 import numpy as np
-from scipy.linalg import solve  # or use numpy: from numpy.linalg import solve
-from scipy.sparse import (
-    diags,
-    diags_array,
-    issparse,
-)
+from scipy.sparse import diags_array
 
-
-class Bounds:
-    """Container for the variable bounds."""
-
-    def __init__(self, lb=-np.inf, ub=np.inf):
-        if issparse(lb) or issparse(ub):
-            message = "Lower and upper bounds must be dense arrays."
-            raise ValueError(message)
-
-        self.lb = np.atleast_1d(lb)
-        self.ub = np.atleast_1d(ub)
-
-    def lower(self):
-        return self.lb
-
-    def upper(self):
-        return self.ub
-
-    def delta(self):
-        return self.ub - self.lb
-
-
-@dataclass
-class Options:
-    """
-    MMA Algorithm options
-
-    Attributes:
-        iteration_count: Maximum number of outer iterations.
-        move_limit: Move limit for the design variables.
-        asyinit: Factor to calculate the initial distance of the asymptotes.
-        asydecr: Factor by which the asymptotes distance is decreased.
-        asyincr: Factor by which the asymptotes distance is increased.
-        asymin: Factor to calculate the minimum distance of the asymptotes.
-        asymax: Factor to calculate the maximum distance of the asymptotes.
-        raa0: Parameter representing the function approximation's accuracy.
-        alpha_factor: Factor to calculate the bounds alpha.
-        beta_factor: Factor to calculate the bounds beta.
-    """
-
-    iteration_count: int
-    move_limit: float = 0.5
-    asyinit: float = 0.5
-    asydecr: float = 0.7
-    asyincr: float = 1.2
-    asymin: float = 0.01
-    asymax: float = 10
-    raa0: float = 0.00001
-    beta_factor: float = 0.1
-    alpha_factor: float = 0.1
+from mma.bounds import Bounds, MMABounds
+from mma.options import Options
+from mma.subsolve import State, subsolv
 
 
 def mma(
@@ -107,8 +54,7 @@ def mma(
     xval = x.copy()
 
     # Lower, upper bounds
-    low = bounds.lb.copy()
-    upp = bounds.ub.copy()
+    bounds = MMABounds(bounds, options)
 
     c = 1000 * np.ones((m, 1))
 
@@ -140,27 +86,23 @@ def mma(
         f0val, df0dx, fval, dfdx = func(xval)
 
         # The MMA subproblem is solved at the point xval:
-        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp = (
-            subproblem.mmasub(
-                m,
-                n,
-                xval,
-                bounds,
-                f0val,
-                df0dx,
-                fval,
-                dfdx,
-                low,
-                upp,
-                a0,
-                a,
-                c,
-                d,
-            )
+        state = subproblem.mmasub(
+            m,
+            n,
+            xval,
+            bounds,
+            f0val,
+            df0dx,
+            fval,
+            dfdx,
+            a0,
+            a,
+            c,
+            d,
         )
 
         # Some vectors are updated:
-        xval = xmma.copy()
+        xval = state.x.copy()
 
         # Re-calculate function values, gradients
         f0val, df0dx, fval, dfdx = func(xval)
@@ -169,16 +111,16 @@ def mma(
         residu, kktnorm, residumax = kktcheck(
             m,
             n,
-            xmma,
-            ymma,
-            zmma,
-            lam,
-            xsi,
-            eta,
-            mu,
-            zet,
-            s,
-            bounds,
+            state.x,
+            state.y,
+            state.z,
+            state.lam,
+            state.xsi,
+            state.eta,
+            state.mu,
+            state.zet,
+            state.s,
+            bounds.bounds,
             df0dx,
             fval,
             dfdx,
@@ -215,26 +157,17 @@ class SubProblem:
         m: int,
         n: int,
         xval: np.ndarray,
-        bounds: Bounds,
+        bounds: MMABounds,
         f0val: float,
         df0dx: np.ndarray,
         fval: np.ndarray,
         dfdx: np.ndarray,
-        low: np.ndarray,
-        upp: np.ndarray,
         a0: float,
         a: np.ndarray,
         c: np.ndarray,
         d: np.ndarray,
     ) -> Tuple[
-        np.ndarray,
-        np.ndarray,
-        float,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-        float,
+        State,
         np.ndarray,
         np.ndarray,
     ]:
@@ -280,107 +213,41 @@ class SubProblem:
                 - upp (np.ndarray): Updated upper bounds for the design variables.
         """
         # Calculation of the asymptotes low and upp.
-        low, upp = self.update_asymptotes(xval, bounds, low, upp)
+        bounds.update_asymptotes(xval, self.xold1, self.xold2)
 
         # Calculation of the bounds alfa and beta.
-        alfa, beta = self.calculate_alpha_beta(xval, bounds, low, upp)
+        bounds.calculate_alpha_beta(xval)
 
         # Calculations approximating functions: P, Q.
         p0, q0 = self.approximating_functions(
-            xval, df0dx, bounds, low, upp, objective=True
+            xval, df0dx, bounds, objective=True
         )
 
         P, Q = self.approximating_functions(
-            xval, dfdx, bounds, low, upp, objective=False
+            xval, dfdx, bounds, objective=False
         )
 
         # Negative residual between approximating functions and objective
         # as described in beginning of Section 5.
-        b = P @ (1 / (upp - xval)) + Q @ (1 / (xval - low)) - fval
+        # TODO: Move this into the State class. It can be computed on the fly?
+        b = (
+            P @ (1 / (bounds.upp - xval))
+            + Q @ (1 / (xval - bounds.low))
+            - fval
+        )
 
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
-        xmma, ymma, zmma, lam, xsi, eta, mu, zet, s = subsolv(
-            m, n, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
-        )
+        state = subsolv(m, n, bounds, p0, q0, P, Q, a0, a, b, c, d)
 
         # Store design variables of last two iterations.
         self.xold2 = None if self.xold1 is None else self.xold1.copy()
         self.xold1 = xval.copy()
 
-        # Return values
-        return xmma, ymma, zmma, lam, xsi, eta, mu, zet, s, low, upp
-
-    def update_asymptotes(self, xval, bounds, low, upp):
-        """Calculation of the asymptotes low and upp.
-
-        This represents equations 3.11 to 3.14.
-        """
-
-        # The difference between upper and lower bounds.
-        delta = bounds.delta()
-
-        if self.xold1 is None or self.xold2 is None:
-            # Equation 3.11.
-            low = xval - self.options.asyinit * delta
-            upp = xval + self.options.asyinit * delta
-            return low, upp
-
-        # Extract sign of variable change from previous iterates.
-        signs = (xval - self.xold1) * (self.xold1 - self.xold2)
-
-        # Assign increase/decrease factoring depending on signs. Equation 3.13.
-        factor = np.ones_like(xval, dtype=float)
-        factor[signs > 0] = self.options.asyincr
-        factor[signs < 0] = self.options.asydecr
-
-        # Equation 3.12.
-        low = xval - factor * (self.xold1 - low)
-        upp = xval + factor * (upp - self.xold1)
-
-        # Limit asymptote change to maximum increase/decrease. Equation 3.14.
-        np.clip(
-            low,
-            a_min=xval - self.options.asymax * delta,
-            a_max=xval - self.options.asymin * delta,
-            out=low,
-        )
-
-        np.clip(
-            upp,
-            a_min=xval + self.options.asymin * delta,
-            a_max=xval + self.options.asymax * delta,
-            out=upp,
-        )
-
-        return low, upp
-
-    def calculate_alpha_beta(self, xval, bounds, low, upp):
-        """Calculation of the bounds alpha and beta.
-
-        Equations 3.6 and 3.7.
-        """
-
-        # Restrict lower bound with move limit.
-        lower_bound = np.maximum(
-            low + self.options.alpha_factor * (xval - low),
-            xval - self.options.move_limit * bounds.delta(),
-        )
-
-        # Restrict upper bound with move limit.
-        upper_bound = np.minimum(
-            upp - self.options.beta_factor * (upp - xval),
-            xval + self.options.move_limit * bounds.delta(),
-        )
-
-        # Restrict bounds with variable bounds.
-        alpha = np.maximum(lower_bound, bounds.lb)
-        beta = np.minimum(upper_bound, bounds.ub)
-
-        return alpha, beta
+        return state
 
     def approximating_functions(
-        self, xval, dfdx, bounds, low, upp, objective=True
+        self, xval, dfdx, bounds: MMABounds, objective=True
     ):
         """Calculate approximating functions "P" and "Q".
 
@@ -401,7 +268,7 @@ class SubProblem:
         # Inverse bounds with eps to avoid divide by zero.
         # Last component of equations 3.3 and 3.4.
         eps_delta = 0.00001
-        delta_inv = 1 / np.maximum(bounds.delta(), eps_delta)
+        delta_inv = 1 / np.maximum(bounds.bounds.delta(), eps_delta)
 
         if objective:
             df_plus = np.maximum(dfdx, 0)
@@ -413,299 +280,17 @@ class SubProblem:
         # Equation 3.3.
         p0 = (1 + factor) * df_plus + factor * df_minus
         p0 += self.options.raa0 * delta_inv
-        p0 = diags_array(((upp - xval) ** 2).squeeze(axis=1)) @ p0
+        p0 = diags_array(((bounds.upp - xval) ** 2).squeeze(axis=1)) @ p0
 
         # Equation 3.4.
         q0 = factor * df_plus + (1 + factor) * df_minus
         q0 += self.options.raa0 * delta_inv
-        q0 = diags_array(((xval - low) ** 2).squeeze(axis=1)) @ q0
+        q0 = diags_array(((xval - bounds.low) ** 2).squeeze(axis=1)) @ q0
 
         if objective:
             return p0, q0
         else:
             return p0.T, q0.T
-
-
-def subsolv(
-    m: int,
-    n: int,
-    low: np.ndarray,
-    upp: np.ndarray,
-    alfa: np.ndarray,
-    beta: np.ndarray,
-    p0: np.ndarray,
-    q0: np.ndarray,
-    P: np.ndarray,
-    Q: np.ndarray,
-    a0: float,
-    a: np.ndarray,
-    b: np.ndarray,
-    c: np.ndarray,
-    d: np.ndarray,
-) -> Tuple[
-    np.ndarray,
-    np.ndarray,
-    float,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    float,
-    np.ndarray,
-    np.ndarray,
-]:
-    """
-    Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
-
-    Minimize:
-        SUM[p0j/(uppj-xj) + q0j/(xj-lowj)] + a0*z + SUM[ci*yi + 0.5*di*(yi)^2]
-
-    Subject to:
-        SUM[pij/(uppj-xj) + qij/(xj-lowj)] - ai*z - yi <= bi,
-        alfa_j <= xj <= beta_j, yi >= 0, z >= 0.
-
-    Args:
-        m (int): Number of constraints.
-        n (int): Number of variables.
-        low (np.ndarray): Lower bounds for the variables x_j.
-        upp (np.ndarray): Upper bounds for the variables x_j.
-        alfa (np.ndarray): Lower asymptotes for the variables.
-        beta (np.ndarray): Upper asymptotes for the variables.
-        p0 (np.ndarray): Coefficients for the lower bound terms.
-        q0 (np.ndarray): Coefficients for the upper bound terms.
-        P (np.ndarray): Matrix of coefficients for the lower bound terms in the constraints.
-        Q (np.ndarray): Matrix of coefficients for the upper bound terms in the constraints.
-        a0 (float): Constant term in the objective function.
-        a (np.ndarray): Coefficients for the constraints involving z.
-        b (np.ndarray): Right-hand side constants in the constraints.
-        c (np.ndarray): Coefficients for the terms involving y in the constraints.
-        d (np.ndarray): Coefficients for the quadratic terms involving y in the objective function.
-
-    Returns:
-        Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
-            - xmma (np.ndarray): Optimal values of the variables x_j.
-            - ymma (np.ndarray): Optimal values of the variables y_i.
-            - zmma (float): Optimal value of the variable z.
-            - slack (np.ndarray): Slack variables for the general MMA constraints.
-            - lagrange (np.ndarray): Lagrange multipliers for the constraints.
-    """
-
-    een = np.ones((n, 1))
-    eem = np.ones((m, 1))
-    epsi = 1
-    epsvecn = epsi * een
-    epsvecm = epsi * eem
-    x = 0.5 * (alfa + beta)
-    y = eem.copy()
-    z = np.array([[1.0]])
-    lam = eem.copy()
-    xsi = een / (x - alfa)
-    xsi = np.maximum(xsi, een)
-    eta = een / (beta - x)
-    eta = np.maximum(eta, een)
-    mu = np.maximum(eem, 0.5 * c)
-    zet = np.array([[1.0]])
-    s = eem.copy()
-    itera = 0
-
-    # A small positive number to ensure numerical stability.
-    epsimin = 0.0000001
-
-    # Start while loop for numerical stability
-    while epsi > epsimin:
-        epsvecn = epsi * een
-        epsvecm = epsi * eem
-        ux1 = upp - x
-        xl1 = x - low
-        ux2 = ux1 * ux1
-        xl2 = xl1 * xl1
-        uxinv1 = een / ux1
-        xlinv1 = een / xl1
-        plam = p0 + np.dot(P.T, lam)
-        qlam = q0 + np.dot(Q.T, lam)
-        gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-        dpsidx = plam / ux2 - qlam / xl2
-        rex = dpsidx - xsi + eta
-        rey = c + d * y - mu - lam
-        rez = a0 - zet - np.dot(a.T, lam)
-        relam = gvec - a * z - y + s - b
-        rexsi = xsi * (x - alfa) - epsvecn
-        reeta = eta * (beta - x) - epsvecn
-        remu = mu * y - epsvecm
-        rezet = zet * z - epsi
-        res = lam * s - epsvecm
-        residu1 = np.concatenate((rex, rey, rez), axis=0)
-        residu2 = np.concatenate(
-            (relam, rexsi, reeta, remu, rezet, res), axis=0
-        )
-        residu = np.concatenate((residu1, residu2), axis=0)
-        residunorm = np.sqrt(np.dot(residu.T, residu).item())
-        residumax = np.max(np.abs(residu))
-        ittt = 0
-
-        # Start inner while loop for optimization
-        while (residumax > 0.9 * epsi) and (ittt < 200):
-            ittt += 1
-            itera += 1
-            ux1 = upp - x
-            xl1 = x - low
-            ux2 = ux1 * ux1
-            xl2 = xl1 * xl1
-            ux3 = ux1 * ux2
-            xl3 = xl1 * xl2
-            uxinv1 = een / ux1
-            xlinv1 = een / xl1
-            uxinv2 = een / ux2
-            xlinv2 = een / xl2
-            plam = p0 + np.dot(P.T, lam)
-            qlam = q0 + np.dot(Q.T, lam)
-            gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-            GG = (diags(uxinv2.flatten(), 0).dot(P.T)).T - (
-                diags(xlinv2.flatten(), 0).dot(Q.T)
-            ).T
-            dpsidx = plam / ux2 - qlam / xl2
-            delx = dpsidx - epsvecn / (x - alfa) + epsvecn / (beta - x)
-            dely = c + d * y - lam - epsvecm / y
-            delz = a0 - np.dot(a.T, lam) - epsi / z
-            dellam = gvec - a * z - y - b + epsvecm / lam
-            diagx = plam / ux3 + qlam / xl3
-            diagx = 2 * diagx + xsi / (x - alfa) + eta / (beta - x)
-            diagxinv = een / diagx
-            diagy = d + mu / y
-            diagyinv = eem / diagy
-            diaglam = s / lam
-            diaglamyi = diaglam + diagyinv
-
-            # Solve system of equations
-            if m < n:
-                blam = dellam + dely / diagy - np.dot(GG, (delx / diagx))
-                bb = np.concatenate((blam, delz), axis=0)
-                Alam = np.asarray(
-                    diags(diaglamyi.flatten(), 0)
-                    + (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T)
-                )
-                AAr1 = np.concatenate((Alam, a), axis=1)
-                AAr2 = np.concatenate((a, -zet / z), axis=0).T
-                AA = np.concatenate((AAr1, AAr2), axis=0)
-                solut = solve(AA, bb)
-                dlam = solut[0:m]
-
-                dz = solut[m : m + 1]
-                dx = -delx / diagx - np.dot(GG.T, dlam) / diagx
-            else:
-                diaglamyiinv = eem / diaglamyi
-                dellamyi = dellam + dely / diagy
-                Axx = np.asarray(
-                    diags(diagx.flatten(), 0)
-                    + (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG)
-                )
-                azz = zet / z + np.dot(a.T, (a / diaglamyi))
-                axz = np.dot(-GG.T, (a / diaglamyi))
-                bx = delx + np.dot(GG.T, (dellamyi / diaglamyi))
-                bz = delz - np.dot(a.T, (dellamyi / diaglamyi))
-                AAr1 = np.concatenate((Axx, axz), axis=1)
-                AAr2 = np.concatenate((axz.T, azz), axis=1)
-                AA = np.concatenate((AAr1, AAr2), axis=0)
-                bb = np.concatenate((-bx, -bz), axis=0)
-                solut = solve(AA, bb)
-                dx = solut[0:n]
-                dz = solut[n : n + 1]
-                dlam = (
-                    np.dot(GG, dx) / diaglamyi
-                    - dz * (a / diaglamyi)
-                    + dellamyi / diaglamyi
-                )
-
-            dy = -dely / diagy + dlam / diagy
-            dxsi = -xsi + epsvecn / (x - alfa) - (xsi * dx) / (x - alfa)
-            deta = -eta + epsvecn / (beta - x) + (eta * dx) / (beta - x)
-            dmu = -mu + epsvecm / y - (mu * dy) / y
-            dzet = -zet + epsi / z - zet * dz / z
-            ds = -s + epsvecm / lam - (s * dlam) / lam
-            xx = np.concatenate((y, z, lam, xsi, eta, mu, zet, s), axis=0)
-            dxx = np.concatenate(
-                (dy, dz, dlam, dxsi, deta, dmu, dzet, ds), axis=0
-            )
-
-            # Step length determination
-            stepxx = -1.01 * dxx / xx
-            stmxx = np.max(stepxx)
-            stepalfa = -1.01 * dx / (x - alfa)
-            stmalfa = np.max(stepalfa)
-            stepbeta = 1.01 * dx / (beta - x)
-            stmbeta = np.max(stepbeta)
-            stmalbe = np.maximum(stmalfa, stmbeta)
-            stmalbexx = np.maximum(stmalbe, stmxx)
-            stminv = np.maximum(stmalbexx, 1.0)
-            steg = 1.0 / stminv
-
-            # Update variables
-            xold = x.copy()
-            yold = y.copy()
-            zold = z.copy()
-            lamold = lam.copy()
-            xsiold = xsi.copy()
-            etaold = eta.copy()
-            muold = mu.copy()
-            zetold = zet.copy()
-            sold = s.copy()
-
-            itto = 0
-            resinew = 2 * residunorm
-
-            while (resinew > residunorm) and (itto < 50):
-                itto += 1
-                x = xold + steg * dx
-                y = yold + steg * dy
-                z = zold + steg * dz
-                lam = lamold + steg * dlam
-                xsi = xsiold + steg * dxsi
-                eta = etaold + steg * deta
-                mu = muold + steg * dmu
-                zet = zetold + steg * dzet
-                s = sold + steg * ds
-                ux1 = upp - x
-                xl1 = x - low
-                ux2 = ux1 * ux1
-                xl2 = xl1 * xl1
-                uxinv1 = een / ux1
-                xlinv1 = een / xl1
-                plam = p0 + np.dot(P.T, lam)
-                qlam = q0 + np.dot(Q.T, lam)
-                gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-                dpsidx = plam / ux2 - qlam / xl2
-                rex = dpsidx - xsi + eta
-                rey = c + d * y - mu - lam
-                rez = a0 - zet - np.dot(a.T, lam)
-                relam = gvec - a * z - y + s - b
-                rexsi = xsi * (x - alfa) - epsvecn
-                reeta = eta * (beta - x) - epsvecn
-                remu = mu * y - epsvecm
-                rezet = zet * z - epsi
-                res = lam * s - epsvecm
-                residu1 = np.concatenate((rex, rey, rez), axis=0)
-                residu2 = np.concatenate(
-                    (relam, rexsi, reeta, remu, rezet, res), axis=0
-                )
-                residu = np.concatenate((residu1, residu2), axis=0)
-                resinew = np.sqrt(np.dot(residu.T, residu))
-                steg = steg / 2
-            residunorm = resinew.copy()
-            residumax = np.max(np.abs(residu))
-            steg = 2 * steg
-
-        epsi = 0.1 * epsi
-
-    xmma = x.copy()
-    ymma = y.copy()
-    zmma = z.copy()
-    lamma = lam
-    xsimma = xsi
-    etamma = eta
-    mumma = mu
-    zetmma = zet
-    smma = s
-
-    return xmma, ymma, zmma, lamma, xsimma, etamma, mumma, zetmma, smma
 
 
 def kktcheck(
@@ -768,8 +353,8 @@ def kktcheck(
     rey = c + d * y - mu - lam
     rez = a0 - zet - np.dot(a.T, lam)
     relam = fval - a * z - y + s
-    rexsi = xsi * (x - bounds.lb)
-    reeta = eta * (bounds.ub - x)
+    rexsi = xsi * (x - bounds.lower())
+    reeta = eta * (bounds.upper() - x)
     remu = mu * y
     rezet = zet * z
     res = lam * s
