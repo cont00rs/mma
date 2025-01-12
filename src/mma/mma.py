@@ -469,6 +469,53 @@ class State:
             self.s.copy(),
         )
 
+    def relaxed_residual(
+        self, a0, a, b, c, d, p0, q0, P, Q, alpha, beta, low, upp, epsi
+    ):
+        """Calculate residuals of the relaxed equations.
+
+        The state equations are converted to their "relaxed" form,
+        see Equations 5.9*, and the residuals are obtained from the
+        full state vector of all equations.
+        """
+
+        plam = p0 + np.dot(P.T, self.lam)
+        qlam = q0 + np.dot(Q.T, self.lam)
+        gvec = P @ (1 / (upp - self.x)) + Q @ (1 / (self.x - low))
+        dpsidx = plam / (upp - self.x) ** 2 - qlam / (self.x - low) ** 2
+
+        relaxed = State(
+            dpsidx - self.xsi + self.eta,
+            c + d * self.y - self.mu - self.lam,
+            a0 - self.zet - a.T @ self.lam,
+            gvec - a * self.z - self.y + self.s - b,
+            self.xsi * (self.x - alpha) - epsi,
+            self.eta * (beta - self.x) - epsi,
+            self.mu * self.y - epsi,
+            self.zet * self.z - epsi,
+            self.lam * self.s - epsi,
+        )
+
+        residual = np.concatenate(
+            (
+                relaxed.x,
+                relaxed.y,
+                relaxed.z,
+                relaxed.lam,
+                relaxed.xsi,
+                relaxed.eta,
+                relaxed.mu,
+                relaxed.zet,
+                relaxed.s,
+            ),
+            axis=0,
+        )
+
+        norm = np.sqrt(np.dot(residual.T, residual).item())
+        norm_max = np.max(np.abs(residual))
+
+        return norm, norm_max
+
 
 def subsolv(
     m: int,
@@ -538,18 +585,6 @@ def subsolv(
     eem = np.ones((m, 1))
     epsi = 1
 
-    # x = 0.5 * (alfa + beta)
-    # y = eem.copy()
-    # z = np.array([[1.0]])
-    # lam = eem.copy()
-    # xsi = 1 / (x - alfa)
-    # xsi = np.maximum(xsi, een)
-    # eta = 1 / (beta - x)
-    # eta = np.maximum(eta, een)
-    # mu = np.maximum(eem, 0.5 * c)
-    # zet = np.array([[1.0]])
-    # s = eem.copy()
-
     state = State.from_apha_beta(n, m, alfa, beta, c)
 
     # A small positive number to ensure numerical stability.
@@ -558,29 +593,9 @@ def subsolv(
     # Start while loop for numerical stability
     while epsi > epsimin:
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
-        plam = p0 + np.dot(P.T, state.lam)
-        qlam = q0 + np.dot(Q.T, state.lam)
-        gvec = P @ (1 / (upp - state.x)) + Q @ (1 / (state.x - low))
-        dpsidx = plam / (upp - state.x) ** 2 - qlam / (state.x - low) ** 2
-
-        rex = dpsidx - state.xsi + state.eta
-        rey = c + d * state.y - state.mu - state.lam
-        rez = a0 - state.zet - a.T @ state.lam
-        relam = gvec - a * state.z - state.y + state.s - b
-        rexsi = state.xsi * (state.x - alfa) - epsi
-        reeta = state.eta * (beta - state.x) - epsi
-        remu = state.mu * state.y - epsi
-        rezet = state.zet * state.z - epsi
-        res = state.lam * state.s - epsi
-
-        # Form residual vector, i.e. the right-hand-side at top Section 5.3.
-        residu1 = np.concatenate((rex, rey, rez), axis=0)
-        residu2 = np.concatenate(
-            (relam, rexsi, reeta, remu, rezet, res), axis=0
+        residunorm, residumax = state.relaxed_residual(
+            a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
         )
-        residu = np.concatenate((residu1, residu2), axis=0)
-        residunorm = np.sqrt(np.dot(residu.T, residu).item())
-        residumax = np.max(np.abs(residu))
 
         # Start inner while loop for optimization
         for ittt in range(200):
@@ -689,6 +704,8 @@ def subsolv(
             dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
             ds = -state.s + epsi / state.lam - (state.s * dlam) / state.lam
 
+            d_state = State(dx, dy, dz, dlam, dxsi, deta, dmu, dzet, ds)
+
             xx = np.concatenate(
                 (
                     state.y,
@@ -703,7 +720,17 @@ def subsolv(
                 axis=0,
             )
             dxx = np.concatenate(
-                (dy, dz, dlam, dxsi, deta, dmu, dzet, ds), axis=0
+                (
+                    d_state.y,
+                    d_state.z,
+                    d_state.lam,
+                    d_state.xsi,
+                    d_state.eta,
+                    d_state.mu,
+                    d_state.zet,
+                    d_state.s,
+                ),
+                axis=0,
             )
 
             state, residumax = line_search(
@@ -720,18 +747,8 @@ def subsolv(
                 q0,
                 P,
                 Q,
-                # current state
                 state,
-                # derivative
-                dx,
-                dy,
-                dz,
-                dlam,
-                dxsi,
-                deta,
-                dmu,
-                dzet,
-                ds,
+                d_state,
                 # parameters
                 a0,
                 a,
@@ -773,18 +790,8 @@ def line_search(
     q0,
     P,
     Q,
-    # current state
     state,
-    # derivative
-    dx,
-    dy,
-    dz,
-    dlam,
-    dxsi,
-    deta,
-    dmu,
-    dzet,
-    ds,
+    d_state,
     # parameters
     a0,
     a,
@@ -805,14 +812,13 @@ def line_search(
     the full Newton step. The specifications of a "good" step are
     indicated in Section 5.4.
     """
-    een = np.ones((n, 1))
 
     # Step length determination
     stepxx = -1.01 * dxx / xx
     stmxx = np.max(stepxx)
-    stepalfa = -1.01 * dx / (state.x - alfa)
+    stepalfa = -1.01 * d_state.x / (state.x - alfa)
     stmalfa = np.max(stepalfa)
-    stepbeta = 1.01 * dx / (beta - state.x)
+    stepbeta = 1.01 * d_state.x / (beta - state.x)
     stmbeta = np.max(stepbeta)
     stmalbe = np.maximum(stmalfa, stmbeta)
     stmalbexx = np.maximum(stmalbe, stmxx)
@@ -829,46 +835,24 @@ def line_search(
         if resinew <= residunorm:
             break
 
-        state.x = old.x + steg * dx
-        state.y = old.y + steg * dy
-        state.z = old.z + steg * dz
-        state.lam = old.lam + steg * dlam
-        state.xsi = old.xsi + steg * dxsi
-        state.eta = old.eta + steg * deta
-        state.mu = old.mu + steg * dmu
-        state.zet = old.zet + steg * dzet
-        state.s = old.s + steg * ds
+        state.x = old.x + steg * d_state.x
+        state.y = old.y + steg * d_state.y
+        state.z = old.z + steg * d_state.z
+        state.lam = old.lam + steg * d_state.lam
+        state.xsi = old.xsi + steg * d_state.xsi
+        state.eta = old.eta + steg * d_state.eta
+        state.mu = old.mu + steg * d_state.mu
+        state.zet = old.zet + steg * d_state.zet
+        state.s = old.s + steg * d_state.s
 
-        ux1 = upp - state.x
-        xl1 = state.x - low
-        ux2 = ux1 * ux1
-        xl2 = xl1 * xl1
-        uxinv1 = een / ux1
-        xlinv1 = een / xl1
-        plam = p0 + np.dot(P.T, state.lam)
-        qlam = q0 + np.dot(Q.T, state.lam)
-        gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-        dpsidx = plam / ux2 - qlam / xl2
-
-        rex = dpsidx - state.xsi + state.eta
-        rey = c + d * state.y - state.mu - state.lam
-        rez = a0 - state.zet - np.dot(a.T, state.lam)
-        relam = gvec - a * state.z - state.y + state.s - b
-        rexsi = state.xsi * (state.x - alfa) - epsi
-        reeta = state.eta * (beta - state.x) - epsi
-        remu = state.mu * state.y - epsi
-        rezet = state.zet * state.z - epsi
-        res = state.lam * state.s - epsi
-
-        residu1 = np.concatenate((rex, rey, rez), axis=0)
-        residu2 = np.concatenate(
-            (relam, rexsi, reeta, remu, rezet, res), axis=0
+        # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
+        resinew, residumax = state.relaxed_residual(
+            a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
         )
-        residu = np.concatenate((residu1, residu2), axis=0)
-        resinew = np.sqrt(np.dot(residu.T, residu))
+
         steg = steg / 2
 
-    residumax = np.max(np.abs(residu))
+    # residumax = np.max(np.abs(residu))
     steg = 2 * steg
 
     return state, residumax
