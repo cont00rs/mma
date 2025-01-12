@@ -87,15 +87,78 @@ class Options:
     alpha_factor: float = 0.1
 
 
-@dataclass
-class AlphaBetaBounds:
-    # TODO: Improve naming for this container class.
-    # TODO: Add documentation on entries.
-    low: np.ndarray
-    upp: np.ndarray
-    alpha: np.ndarray
-    beta: np.ndarray
-    bounds: Bounds
+class MMABounds:
+    def __init__(self, bounds: Bounds, options: Options):
+        self.bounds = bounds
+        self.options = options
+
+        # Initialise (low, upp) to the bounds of the problem.
+        self.low = bounds.lower()
+        self.upp = bounds.upper()
+
+    def update_asymptotes(self, xval, xold1, xold2):
+        """Calculation of the asymptotes low and upp.
+
+        This represents equations 3.11 to 3.14.
+        """
+
+        # The difference between upper and lower bounds.
+        delta = self.bounds.delta()
+
+        if xold1 is None or xold2 is None:
+            # Equation 3.11.
+            self.low = xval - self.options.asyinit * delta
+            self.upp = xval + self.options.asyinit * delta
+            return
+
+        # Extract sign of variable change from previous iterates.
+        signs = (xval - xold1) * (xold1 - xold2)
+
+        # Assign increase/decrease factoring depending on signs. Equation 3.13.
+        factor = np.ones_like(xval, dtype=float)
+        factor[signs > 0] = self.options.asyincr
+        factor[signs < 0] = self.options.asydecr
+
+        # Equation 3.12.
+        self.low = xval - factor * (xold1 - self.low)
+        self.upp = xval + factor * (self.upp - xold1)
+
+        # Limit asymptote change to maximum increase/decrease. Equation 3.14.
+        np.clip(
+            self.low,
+            a_min=xval - self.options.asymax * delta,
+            a_max=xval - self.options.asymin * delta,
+            out=self.low,
+        )
+
+        np.clip(
+            self.upp,
+            a_min=xval + self.options.asymin * delta,
+            a_max=xval + self.options.asymax * delta,
+            out=self.upp,
+        )
+
+    def calculate_alpha_beta(self, xval):
+        """Calculation of the bounds alpha and beta.
+
+        Equations 3.6 and 3.7.
+        """
+
+        # Restrict lower bound with move limit.
+        lower_bound = np.maximum(
+            self.low + self.options.alpha_factor * (xval - self.low),
+            xval - self.options.move_limit * self.bounds.delta(),
+        )
+
+        # Restrict upper bound with move limit.
+        upper_bound = np.minimum(
+            self.upp - self.options.beta_factor * (self.upp - xval),
+            xval + self.options.move_limit * self.bounds.delta(),
+        )
+
+        # Restrict bounds with variable bounds.
+        self.alpha = np.maximum(lower_bound, self.bounds.lb)
+        self.beta = np.minimum(upper_bound, self.bounds.ub)
 
 
 def mma(
@@ -118,8 +181,7 @@ def mma(
     xval = x.copy()
 
     # Lower, upper bounds
-    low = bounds.lb.copy()
-    upp = bounds.ub.copy()
+    bounds = MMABounds(bounds, options)
 
     c = 1000 * np.ones((m, 1))
 
@@ -151,7 +213,7 @@ def mma(
         f0val, df0dx, fval, dfdx = func(xval)
 
         # The MMA subproblem is solved at the point xval:
-        state, low, upp = subproblem.mmasub(
+        state = subproblem.mmasub(
             m,
             n,
             xval,
@@ -160,8 +222,6 @@ def mma(
             df0dx,
             fval,
             dfdx,
-            low,
-            upp,
             a0,
             a,
             c,
@@ -187,7 +247,7 @@ def mma(
             state.mu,
             state.zet,
             state.s,
-            bounds,
+            bounds.bounds,
             df0dx,
             fval,
             dfdx,
@@ -233,13 +293,13 @@ class State:
         self.s = s
 
     @classmethod
-    def from_alpha_beta(cls, n, m, alpha_beta, c):
-        x = (alpha_beta.alpha + alpha_beta.beta) / 2
+    def from_alpha_beta(cls, n, m, bounds, c):
+        x = (bounds.alpha + bounds.beta) / 2
         y = np.ones((m, 1))
         z = np.array([[1.0]])
         lam = np.ones((m, 1))
-        xsi = np.maximum(1 / (x - alpha_beta.alpha), 1)
-        eta = np.maximum(1 / (alpha_beta.beta - x), 1)
+        xsi = np.maximum(1 / (x - bounds.alpha), 1)
+        eta = np.maximum(1 / (bounds.beta - x), 1)
         mu = np.maximum(np.ones((m, 1)), 0.5 * c)
         zet = np.array([[1.0]])
         s = np.ones((m, 1))
@@ -287,7 +347,7 @@ class State:
         self.s *= value
         return self
 
-    def relaxed_residual(self, a0, a, b, c, d, p0, q0, P, Q, alpha_beta, epsi):
+    def relaxed_residual(self, a0, a, b, c, d, p0, q0, P, Q, bounds, epsi):
         """Calculate residuals of the relaxed equations.
 
         The state equations are converted to their "relaxed" form,
@@ -297,12 +357,12 @@ class State:
 
         plam = p0 + P.T @ self.lam
         qlam = q0 + Q.T @ self.lam
-        gvec = P @ (1 / (alpha_beta.upp - self.x)) + Q @ (
-            1 / (self.x - alpha_beta.low)
+        gvec = P @ (1 / (bounds.upp - self.x)) + Q @ (
+            1 / (self.x - bounds.low)
         )
         dpsidx = (
-            plam / (alpha_beta.upp - self.x) ** 2
-            - qlam / (self.x - alpha_beta.low) ** 2
+            plam / (bounds.upp - self.x) ** 2
+            - qlam / (self.x - bounds.low) ** 2
         )
 
         relaxed = State(
@@ -310,8 +370,8 @@ class State:
             c + d * self.y - self.mu - self.lam,
             a0 - self.zet - a.T @ self.lam,
             gvec - a * self.z - self.y + self.s - b,
-            self.xsi * (self.x - alpha_beta.alpha) - epsi,
-            self.eta * (alpha_beta.beta - self.x) - epsi,
+            self.xsi * (self.x - bounds.alpha) - epsi,
+            self.eta * (bounds.beta - self.x) - epsi,
             self.mu * self.y - epsi,
             self.zet * self.z - epsi,
             self.lam * self.s - epsi,
@@ -352,13 +412,11 @@ class SubProblem:
         m: int,
         n: int,
         xval: np.ndarray,
-        bounds: Bounds,
+        bounds: MMABounds,
         f0val: float,
         df0dx: np.ndarray,
         fval: np.ndarray,
         dfdx: np.ndarray,
-        low: np.ndarray,
-        upp: np.ndarray,
         a0: float,
         a: np.ndarray,
         c: np.ndarray,
@@ -410,105 +468,41 @@ class SubProblem:
                 - upp (np.ndarray): Updated upper bounds for the design variables.
         """
         # Calculation of the asymptotes low and upp.
-        low, upp = self.update_asymptotes(xval, bounds, low, upp)
+        bounds.update_asymptotes(xval, self.xold1, self.xold2)
 
         # Calculation of the bounds alfa and beta.
-        alpha_beta = self.calculate_alpha_beta(xval, bounds, low, upp)
+        bounds.calculate_alpha_beta(xval)
 
         # Calculations approximating functions: P, Q.
         p0, q0 = self.approximating_functions(
-            xval, df0dx, alpha_beta, objective=True
+            xval, df0dx, bounds, objective=True
         )
 
         P, Q = self.approximating_functions(
-            xval, dfdx, alpha_beta, objective=False
+            xval, dfdx, bounds, objective=False
         )
 
         # Negative residual between approximating functions and objective
         # as described in beginning of Section 5.
-        b = P @ (1 / (upp - xval)) + Q @ (1 / (xval - low)) - fval
+        # TODO: Move this into the State class. It can be computed on the fly?
+        b = (
+            P @ (1 / (bounds.upp - xval))
+            + Q @ (1 / (xval - bounds.low))
+            - fval
+        )
 
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
-        state = subsolv(m, n, alpha_beta, p0, q0, P, Q, a0, a, b, c, d)
+        state = subsolv(m, n, bounds, p0, q0, P, Q, a0, a, b, c, d)
 
         # Store design variables of last two iterations.
         self.xold2 = None if self.xold1 is None else self.xold1.copy()
         self.xold1 = xval.copy()
 
-        # Return values
-        return state, alpha_beta.low, alpha_beta.upp
-
-    def update_asymptotes(self, xval, bounds, low, upp):
-        """Calculation of the asymptotes low and upp.
-
-        This represents equations 3.11 to 3.14.
-        """
-
-        # The difference between upper and lower bounds.
-        delta = bounds.delta()
-
-        if self.xold1 is None or self.xold2 is None:
-            # Equation 3.11.
-            low = xval - self.options.asyinit * delta
-            upp = xval + self.options.asyinit * delta
-            return low, upp
-
-        # Extract sign of variable change from previous iterates.
-        signs = (xval - self.xold1) * (self.xold1 - self.xold2)
-
-        # Assign increase/decrease factoring depending on signs. Equation 3.13.
-        factor = np.ones_like(xval, dtype=float)
-        factor[signs > 0] = self.options.asyincr
-        factor[signs < 0] = self.options.asydecr
-
-        # Equation 3.12.
-        low = xval - factor * (self.xold1 - low)
-        upp = xval + factor * (upp - self.xold1)
-
-        # Limit asymptote change to maximum increase/decrease. Equation 3.14.
-        np.clip(
-            low,
-            a_min=xval - self.options.asymax * delta,
-            a_max=xval - self.options.asymin * delta,
-            out=low,
-        )
-
-        np.clip(
-            upp,
-            a_min=xval + self.options.asymin * delta,
-            a_max=xval + self.options.asymax * delta,
-            out=upp,
-        )
-
-        return low, upp
-
-    def calculate_alpha_beta(self, xval, bounds, low, upp) -> AlphaBetaBounds:
-        """Calculation of the bounds alpha and beta.
-
-        Equations 3.6 and 3.7.
-        """
-
-        # Restrict lower bound with move limit.
-        lower_bound = np.maximum(
-            low + self.options.alpha_factor * (xval - low),
-            xval - self.options.move_limit * bounds.delta(),
-        )
-
-        # Restrict upper bound with move limit.
-        upper_bound = np.minimum(
-            upp - self.options.beta_factor * (upp - xval),
-            xval + self.options.move_limit * bounds.delta(),
-        )
-
-        # Restrict bounds with variable bounds.
-        alpha = np.maximum(lower_bound, bounds.lb)
-        beta = np.minimum(upper_bound, bounds.ub)
-
-        return AlphaBetaBounds(low, upp, alpha, beta, bounds)
+        return state
 
     def approximating_functions(
-        self, xval, dfdx, alpha_beta: AlphaBetaBounds, objective=True
+        self, xval, dfdx, bounds: MMABounds, objective=True
     ):
         """Calculate approximating functions "P" and "Q".
 
@@ -529,7 +523,7 @@ class SubProblem:
         # Inverse bounds with eps to avoid divide by zero.
         # Last component of equations 3.3 and 3.4.
         eps_delta = 0.00001
-        delta_inv = 1 / np.maximum(alpha_beta.bounds.delta(), eps_delta)
+        delta_inv = 1 / np.maximum(bounds.bounds.delta(), eps_delta)
 
         if objective:
             df_plus = np.maximum(dfdx, 0)
@@ -541,12 +535,12 @@ class SubProblem:
         # Equation 3.3.
         p0 = (1 + factor) * df_plus + factor * df_minus
         p0 += self.options.raa0 * delta_inv
-        p0 = diags_array(((alpha_beta.upp - xval) ** 2).squeeze(axis=1)) @ p0
+        p0 = diags_array(((bounds.upp - xval) ** 2).squeeze(axis=1)) @ p0
 
         # Equation 3.4.
         q0 = factor * df_plus + (1 + factor) * df_minus
         q0 += self.options.raa0 * delta_inv
-        q0 = diags_array(((xval - alpha_beta.low) ** 2).squeeze(axis=1)) @ q0
+        q0 = diags_array(((xval - bounds.low) ** 2).squeeze(axis=1)) @ q0
 
         if objective:
             return p0, q0
@@ -557,7 +551,7 @@ class SubProblem:
 def subsolv(
     m: int,
     n: int,
-    alpha_beta: AlphaBetaBounds,
+    bounds: MMABounds,
     p0: np.ndarray,
     q0: np.ndarray,
     P: np.ndarray,
@@ -602,7 +596,7 @@ def subsolv(
     # Initial problem state as given in Section 5.5 beginning.
     epsi = 1
 
-    state = State.from_alpha_beta(n, m, alpha_beta, c)
+    state = State.from_alpha_beta(n, m, bounds, c)
 
     # A small positive number to ensure numerical stability.
     epsimin = 1e-7
@@ -614,7 +608,7 @@ def subsolv(
         for _ in range(iteration_count):
             # Compute relaxed optimality conditions, Section 5.2.
             residunorm, residumax = state.relaxed_residual(
-                a0, a, b, c, d, p0, q0, P, Q, alpha_beta, epsi
+                a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
             )
 
             if residumax <= 0.9 * epsi:
@@ -623,7 +617,7 @@ def subsolv(
             d_state = solve_newton_step(
                 state,
                 # bounds
-                alpha_beta,
+                bounds,
                 # approximations
                 p0,
                 q0,
@@ -640,7 +634,7 @@ def subsolv(
 
             state = line_search(
                 # bounds
-                alpha_beta,
+                bounds,
                 # approximations
                 p0,
                 q0,
@@ -665,7 +659,7 @@ def subsolv(
 # FIXME: Match this to interface of `line_search`.
 def solve_newton_step(
     state,
-    alpha_beta: AlphaBetaBounds,
+    bounds: MMABounds,
     # approximations
     p0,
     q0,
@@ -679,8 +673,8 @@ def solve_newton_step(
     d,
     epsi,
 ):
-    ux1 = alpha_beta.upp - state.x
-    xl1 = state.x - alpha_beta.low
+    ux1 = bounds.upp - state.x
+    xl1 = state.x - bounds.low
     ux2 = ux1 * ux1
     xl2 = xl1 * xl1
     ux3 = ux1 * ux2
@@ -698,8 +692,8 @@ def solve_newton_step(
     dpsidx = plam / ux2 - qlam / xl2
     delx = (
         dpsidx
-        - epsi / (state.x - alpha_beta.alpha)
-        + epsi / (alpha_beta.beta - state.x)
+        - epsi / (state.x - bounds.alpha)
+        + epsi / (bounds.beta - state.x)
     )
     dely = c + d * state.y - state.lam - epsi / state.y
     delz = a0 - np.dot(a.T, state.lam) - epsi / state.z
@@ -707,8 +701,8 @@ def solve_newton_step(
     diagx = plam / ux3 + qlam / xl3
     diagx = (
         2 * diagx
-        + state.xsi / (state.x - alpha_beta.alpha)
-        + state.eta / (alpha_beta.beta - state.x)
+        + state.xsi / (state.x - bounds.alpha)
+        + state.eta / (bounds.beta - state.x)
     )
     diagxinv = 1 / diagx
     diagy = d + state.mu / state.y
@@ -775,13 +769,13 @@ def solve_newton_step(
     dy = -dely / diagy + dlam / diagy
     dxsi = (
         -state.xsi
-        + epsi / (state.x - alpha_beta.alpha)
-        - (state.xsi * dx) / (state.x - alpha_beta.alpha)
+        + epsi / (state.x - bounds.alpha)
+        - (state.xsi * dx) / (state.x - bounds.alpha)
     )
     deta = (
         -state.eta
-        + epsi / (alpha_beta.beta - state.x)
-        + (state.eta * dx) / (alpha_beta.beta - state.x)
+        + epsi / (bounds.beta - state.x)
+        + (state.eta * dx) / (bounds.beta - state.x)
     )
     dmu = -state.mu + epsi / state.y - (state.mu * dy) / state.y
     dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
@@ -792,7 +786,7 @@ def solve_newton_step(
 
 def line_search(
     # bounds
-    alpha_beta: AlphaBetaBounds,
+    bounds: MMABounds,
     # approximations
     p0,
     q0,
@@ -849,9 +843,9 @@ def line_search(
     # Step length determination
     stepxx = -1.01 * dxx / xx
     stmxx = np.max(stepxx)
-    stepalfa = -1.01 * d_state.x / (state.x - alpha_beta.alpha)
+    stepalfa = -1.01 * d_state.x / (state.x - bounds.alpha)
     stmalfa = np.max(stepalfa)
-    stepbeta = 1.01 * d_state.x / (alpha_beta.beta - state.x)
+    stepbeta = 1.01 * d_state.x / (bounds.beta - state.x)
     stmbeta = np.max(stepbeta)
     stmalbe = np.maximum(stmalfa, stmbeta)
     stmalbexx = np.maximum(stmalbe, stmxx)
@@ -863,7 +857,7 @@ def line_search(
 
     # Initial residual to be improved up on.
     residunorm, _ = state.relaxed_residual(
-        a0, a, b, c, d, p0, q0, P, Q, alpha_beta, epsi
+        a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
     )
 
     # Find largest step sizes that decreases the residual.
@@ -882,7 +876,7 @@ def line_search(
 
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
         resinew, residumax = state.relaxed_residual(
-            a0, a, b, c, d, p0, q0, P, Q, alpha_beta, epsi
+            a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
         )
 
     return state
@@ -948,8 +942,8 @@ def kktcheck(
     rey = c + d * y - mu - lam
     rez = a0 - zet - np.dot(a.T, lam)
     relam = fval - a * z - y + s
-    rexsi = xsi * (x - bounds.lb)
-    reeta = eta * (bounds.ub - x)
+    rexsi = xsi * (x - bounds.lower())
+    reeta = eta * (bounds.upper() - x)
     remu = mu * y
     rezet = zet * z
     res = lam * s
