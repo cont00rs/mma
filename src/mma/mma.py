@@ -31,6 +31,7 @@ import numpy as np
 from scipy.linalg import solve  # or use numpy: from numpy.linalg import solve
 from scipy.sparse import (
     diags,
+    diags_array,
     issparse,
 )
 
@@ -278,45 +279,24 @@ class SubProblem:
                 - low (np.ndarray): Updated lower bounds for the design variables.
                 - upp (np.ndarray): Updated upper bounds for the design variables.
         """
-        eeen = np.ones((n, 1), dtype=float)
-        eeem = np.ones((m, 1), dtype=float)
-        zeron = np.zeros((n, 1), dtype=float)
-
         # Calculation of the asymptotes low and upp.
         low, upp = self.update_asymptotes(xval, bounds, low, upp)
 
-        # Calculation of the bounds alfa and beta
+        # Calculation of the bounds alfa and beta.
         alfa, beta = self.calculate_alpha_beta(xval, bounds, low, upp)
 
-        # Calculations of p0, q0, P, Q and b
-        xmami_eps = 0.00001 * eeen
-        xmami = np.maximum(bounds.delta(), xmami_eps)
-        xmami_inv = eeen / xmami
-        ux1 = upp - xval
-        ux2 = ux1 * ux1
-        xl1 = xval - low
-        xl2 = xl1 * xl1
-        ux_inv = eeen / ux1
-        xl_inv = eeen / xl1
-        p0 = zeron.copy()
-        q0 = zeron.copy()
-        p0 = np.maximum(df0dx, 0)
-        q0 = np.maximum(-df0dx, 0)
-        pq0 = 0.001 * (p0 + q0) + self.options.raa0 * xmami_inv
-        p0 = p0 + pq0
-        q0 = q0 + pq0
-        p0 = p0 * ux2
-        q0 = q0 * xl2
-        P = np.zeros((m, n), dtype=float)
-        Q = np.zeros((m, n), dtype=float)
-        P = np.maximum(dfdx, 0)
-        Q = np.maximum(-dfdx, 0)
-        PQ = 0.001 * (P + Q) + self.options.raa0 * np.dot(eeem, xmami_inv.T)
-        P = P + PQ
-        Q = Q + PQ
-        P = (diags(ux2.flatten(), 0).dot(P.T)).T
-        Q = (diags(xl2.flatten(), 0).dot(Q.T)).T
-        b = np.dot(P, ux_inv) + np.dot(Q, xl_inv) - fval
+        # Calculations approximating functions: P, Q.
+        p0, q0 = self.approximating_functions(
+            xval, df0dx, bounds, low, upp, objective=True
+        )
+
+        P, Q = self.approximating_functions(
+            xval, dfdx, bounds, low, upp, objective=False
+        )
+
+        # Negative residual between approximating functions and objective
+        # as described in beginning of Section 5.
+        b = P @ (1 / (upp - xval)) + Q @ (1 / (xval - low)) - fval
 
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
@@ -398,6 +378,52 @@ class SubProblem:
         beta = np.minimum(upper_bound, bounds.ub)
 
         return alpha, beta
+
+    def approximating_functions(
+        self, xval, dfdx, bounds, low, upp, objective=True
+    ):
+        """Calculate approximating functions "P" and "Q".
+
+        Build components for approximation of objective and
+        constraint functions from lower/upper asymptotes and
+        current derivative information.
+
+        The routine calculations Equations 3.2 - 3.5 for the
+        objective function (f_0) and constraints (f_1 ... f_n).
+
+        Due to the layout of the constraint derivatives an
+        additional transpose is needed, controlled through the
+        objective keyword argument.
+        """
+
+        factor = 0.001
+
+        # Inverse bounds with eps to avoid divide by zero.
+        # Last component of equations 3.3 and 3.4.
+        eps_delta = 0.00001
+        delta_inv = 1 / np.maximum(bounds.delta(), eps_delta)
+
+        if objective:
+            df_plus = np.maximum(dfdx, 0)
+            df_minus = np.maximum(-dfdx, 0)
+        else:
+            df_plus = np.maximum(dfdx.T, 0)
+            df_minus = np.maximum(-dfdx.T, 0)
+
+        # Equation 3.3.
+        p0 = (1 + factor) * df_plus + factor * df_minus
+        p0 += self.options.raa0 * delta_inv
+        p0 = diags_array(((upp - xval) ** 2).squeeze(axis=1)) @ p0
+
+        # Equation 3.4.
+        q0 = factor * df_plus + (1 + factor) * df_minus
+        q0 += self.options.raa0 * delta_inv
+        q0 = diags_array(((xval - low) ** 2).squeeze(axis=1)) @ q0
+
+        if objective:
+            return p0, q0
+        else:
+            return p0.T, q0.T
 
 
 def subsolv(
