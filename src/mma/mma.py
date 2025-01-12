@@ -636,8 +636,6 @@ def subsolv(
                 c,
                 d,
                 epsi,
-                n,
-                m,
             )
 
             state = line_search(
@@ -657,8 +655,6 @@ def subsolv(
                 c,
                 d,
                 epsi,
-                n,
-                m,
             )
 
         epsi = 0.1 * epsi
@@ -682,8 +678,6 @@ def solve_newton_step(
     c,
     d,
     epsi,
-    n,
-    m,
 ):
     ux1 = alpha_beta.upp - state.x
     xl1 = state.x - alpha_beta.low
@@ -727,6 +721,8 @@ def solve_newton_step(
     # a role in determining how to solve the primal-dual problem.
     # The paper expands on this at the end of Section 5.3.
     # TODO: Consider to move more of that discussion here.
+
+    n, m = len(state.x), len(state.y)
 
     if n > m:
         # Delta x is eliminated (Equation 5.19) and the system
@@ -811,8 +807,6 @@ def line_search(
     c,
     d,
     epsi,
-    n,
-    m,
 ):
     """Line search along Newton descent direction.
 
