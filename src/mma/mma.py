@@ -87,6 +87,16 @@ class Options:
     alpha_factor: float = 0.1
 
 
+@dataclass
+class AlphaBetaBounds:
+    # TODO: Improve naming for this container class.
+    # TODO: Add documentation on entries.
+    low: np.ndarray
+    upp: np.ndarray
+    alpha: np.ndarray
+    beta: np.ndarray
+
+
 def mma(
     x: np.ndarray,
     func: callable,
@@ -222,13 +232,13 @@ class State:
         self.s = s
 
     @classmethod
-    def from_apha_beta(cls, n, m, alpha, beta, c):
-        x = (alpha + beta) / 2
+    def from_alpha_beta(cls, n, m, alpha_beta, c):
+        x = (alpha_beta.alpha + alpha_beta.beta) / 2
         y = np.ones((m, 1))
         z = np.array([[1.0]])
         lam = np.ones((m, 1))
-        xsi = np.maximum(1 / (x - alpha), 1)
-        eta = np.maximum(1 / (beta - x), 1)
+        xsi = np.maximum(1 / (x - alpha_beta.alpha), 1)
+        eta = np.maximum(1 / (alpha_beta.beta - x), 1)
         mu = np.maximum(np.ones((m, 1)), 0.5 * c)
         zet = np.array([[1.0]])
         s = np.ones((m, 1))
@@ -276,9 +286,7 @@ class State:
         self.s *= value
         return self
 
-    def relaxed_residual(
-        self, a0, a, b, c, d, p0, q0, P, Q, alpha, beta, low, upp, epsi
-    ):
+    def relaxed_residual(self, a0, a, b, c, d, p0, q0, P, Q, alpha_beta, epsi):
         """Calculate residuals of the relaxed equations.
 
         The state equations are converted to their "relaxed" form,
@@ -288,16 +296,21 @@ class State:
 
         plam = p0 + P.T @ self.lam
         qlam = q0 + Q.T @ self.lam
-        gvec = P @ (1 / (upp - self.x)) + Q @ (1 / (self.x - low))
-        dpsidx = plam / (upp - self.x) ** 2 - qlam / (self.x - low) ** 2
+        gvec = P @ (1 / (alpha_beta.upp - self.x)) + Q @ (
+            1 / (self.x - alpha_beta.low)
+        )
+        dpsidx = (
+            plam / (alpha_beta.upp - self.x) ** 2
+            - qlam / (self.x - alpha_beta.low) ** 2
+        )
 
         relaxed = State(
             dpsidx - self.xsi + self.eta,
             c + d * self.y - self.mu - self.lam,
             a0 - self.zet - a.T @ self.lam,
             gvec - a * self.z - self.y + self.s - b,
-            self.xsi * (self.x - alpha) - epsi,
-            self.eta * (beta - self.x) - epsi,
+            self.xsi * (self.x - alpha_beta.alpha) - epsi,
+            self.eta * (alpha_beta.beta - self.x) - epsi,
             self.mu * self.y - epsi,
             self.zet * self.z - epsi,
             self.lam * self.s - epsi,
@@ -399,15 +412,15 @@ class SubProblem:
         low, upp = self.update_asymptotes(xval, bounds, low, upp)
 
         # Calculation of the bounds alfa and beta.
-        alfa, beta = self.calculate_alpha_beta(xval, bounds, low, upp)
+        alpha_beta = self.calculate_alpha_beta(xval, bounds, low, upp)
 
         # Calculations approximating functions: P, Q.
         p0, q0 = self.approximating_functions(
-            xval, df0dx, bounds, low, upp, objective=True
+            xval, df0dx, bounds, alpha_beta, objective=True
         )
 
         P, Q = self.approximating_functions(
-            xval, dfdx, bounds, low, upp, objective=False
+            xval, dfdx, bounds, alpha_beta, objective=False
         )
 
         # Negative residual between approximating functions and objective
@@ -416,16 +429,14 @@ class SubProblem:
 
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
-        state = subsolv(
-            m, n, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d
-        )
+        state = subsolv(m, n, alpha_beta, p0, q0, P, Q, a0, a, b, c, d)
 
         # Store design variables of last two iterations.
         self.xold2 = None if self.xold1 is None else self.xold1.copy()
         self.xold1 = xval.copy()
 
         # Return values
-        return state, low, upp
+        return state, alpha_beta.low, alpha_beta.upp
 
     def update_asymptotes(self, xval, bounds, low, upp):
         """Calculation of the asymptotes low and upp.
@@ -471,7 +482,7 @@ class SubProblem:
 
         return low, upp
 
-    def calculate_alpha_beta(self, xval, bounds, low, upp):
+    def calculate_alpha_beta(self, xval, bounds, low, upp) -> AlphaBetaBounds:
         """Calculation of the bounds alpha and beta.
 
         Equations 3.6 and 3.7.
@@ -493,10 +504,10 @@ class SubProblem:
         alpha = np.maximum(lower_bound, bounds.lb)
         beta = np.minimum(upper_bound, bounds.ub)
 
-        return alpha, beta
+        return AlphaBetaBounds(low, upp, alpha, beta)
 
     def approximating_functions(
-        self, xval, dfdx, bounds, low, upp, objective=True
+        self, xval, dfdx, bounds, alpha_beta: AlphaBetaBounds, objective=True
     ):
         """Calculate approximating functions "P" and "Q".
 
@@ -529,12 +540,12 @@ class SubProblem:
         # Equation 3.3.
         p0 = (1 + factor) * df_plus + factor * df_minus
         p0 += self.options.raa0 * delta_inv
-        p0 = diags_array(((upp - xval) ** 2).squeeze(axis=1)) @ p0
+        p0 = diags_array(((alpha_beta.upp - xval) ** 2).squeeze(axis=1)) @ p0
 
         # Equation 3.4.
         q0 = factor * df_plus + (1 + factor) * df_minus
         q0 += self.options.raa0 * delta_inv
-        q0 = diags_array(((xval - low) ** 2).squeeze(axis=1)) @ q0
+        q0 = diags_array(((xval - alpha_beta.low) ** 2).squeeze(axis=1)) @ q0
 
         if objective:
             return p0, q0
@@ -545,10 +556,7 @@ class SubProblem:
 def subsolv(
     m: int,
     n: int,
-    low: np.ndarray,
-    upp: np.ndarray,
-    alfa: np.ndarray,
-    beta: np.ndarray,
+    alpha_beta: AlphaBetaBounds,
     p0: np.ndarray,
     q0: np.ndarray,
     P: np.ndarray,
@@ -593,7 +601,7 @@ def subsolv(
     # Initial problem state as given in Section 5.5 beginning.
     epsi = 1
 
-    state = State.from_apha_beta(n, m, alfa, beta, c)
+    state = State.from_alpha_beta(n, m, alpha_beta, c)
 
     # A small positive number to ensure numerical stability.
     epsimin = 1e-7
@@ -605,7 +613,7 @@ def subsolv(
         for _ in range(iteration_count):
             # Compute relaxed optimality conditions, Section 5.2.
             residunorm, residumax = state.relaxed_residual(
-                a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
+                a0, a, b, c, d, p0, q0, P, Q, alpha_beta, epsi
             )
 
             if residumax <= 0.9 * epsi:
@@ -614,10 +622,7 @@ def subsolv(
             d_state = solve_newton_step(
                 state,
                 # bounds
-                low,
-                upp,
-                alfa,
-                beta,
+                alpha_beta,
                 # approximations
                 p0,
                 q0,
@@ -636,10 +641,7 @@ def subsolv(
 
             state = line_search(
                 # bounds
-                low,
-                upp,
-                alfa,
-                beta,
+                alpha_beta,
                 # approximations
                 p0,
                 q0,
@@ -666,10 +668,7 @@ def subsolv(
 # FIXME: Match this to interface of `line_search`.
 def solve_newton_step(
     state,
-    low,
-    upp,
-    alfa,
-    beta,
+    alpha_beta: AlphaBetaBounds,
     # approximations
     p0,
     q0,
@@ -685,8 +684,8 @@ def solve_newton_step(
     n,
     m,
 ):
-    ux1 = upp - state.x
-    xl1 = state.x - low
+    ux1 = alpha_beta.upp - state.x
+    xl1 = state.x - alpha_beta.low
     ux2 = ux1 * ux1
     xl2 = xl1 * xl1
     ux3 = ux1 * ux2
@@ -702,13 +701,19 @@ def solve_newton_step(
         diags(xlinv2.flatten(), 0).dot(Q.T)
     ).T
     dpsidx = plam / ux2 - qlam / xl2
-    delx = dpsidx - epsi / (state.x - alfa) + epsi / (beta - state.x)
+    delx = (
+        dpsidx
+        - epsi / (state.x - alpha_beta.alpha)
+        + epsi / (alpha_beta.beta - state.x)
+    )
     dely = c + d * state.y - state.lam - epsi / state.y
     delz = a0 - np.dot(a.T, state.lam) - epsi / state.z
     dellam = gvec - a * state.z - state.y - b + epsi / state.lam
     diagx = plam / ux3 + qlam / xl3
     diagx = (
-        2 * diagx + state.xsi / (state.x - alfa) + state.eta / (beta - state.x)
+        2 * diagx
+        + state.xsi / (state.x - alpha_beta.alpha)
+        + state.eta / (alpha_beta.beta - state.x)
     )
     diagxinv = 1 / diagx
     diagy = d + state.mu / state.y
@@ -773,13 +778,13 @@ def solve_newton_step(
     dy = -dely / diagy + dlam / diagy
     dxsi = (
         -state.xsi
-        + epsi / (state.x - alfa)
-        - (state.xsi * dx) / (state.x - alfa)
+        + epsi / (state.x - alpha_beta.alpha)
+        - (state.xsi * dx) / (state.x - alpha_beta.alpha)
     )
     deta = (
         -state.eta
-        + epsi / (beta - state.x)
-        + (state.eta * dx) / (beta - state.x)
+        + epsi / (alpha_beta.beta - state.x)
+        + (state.eta * dx) / (alpha_beta.beta - state.x)
     )
     dmu = -state.mu + epsi / state.y - (state.mu * dy) / state.y
     dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
@@ -790,10 +795,7 @@ def solve_newton_step(
 
 def line_search(
     # bounds
-    low,
-    upp,
-    alfa,
-    beta,
+    alpha_beta: AlphaBetaBounds,
     # approximations
     p0,
     q0,
@@ -852,9 +854,9 @@ def line_search(
     # Step length determination
     stepxx = -1.01 * dxx / xx
     stmxx = np.max(stepxx)
-    stepalfa = -1.01 * d_state.x / (state.x - alfa)
+    stepalfa = -1.01 * d_state.x / (state.x - alpha_beta.alpha)
     stmalfa = np.max(stepalfa)
-    stepbeta = 1.01 * d_state.x / (beta - state.x)
+    stepbeta = 1.01 * d_state.x / (alpha_beta.beta - state.x)
     stmbeta = np.max(stepbeta)
     stmalbe = np.maximum(stmalfa, stmbeta)
     stmalbexx = np.maximum(stmalbe, stmxx)
@@ -866,7 +868,7 @@ def line_search(
 
     # Initial residual to be improved up on.
     residunorm, _ = state.relaxed_residual(
-        a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
+        a0, a, b, c, d, p0, q0, P, Q, alpha_beta, epsi
     )
 
     # Find largest step sizes that decreases the residual.
@@ -885,7 +887,7 @@ def line_search(
 
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
         resinew, residumax = state.relaxed_residual(
-            a0, a, b, c, d, p0, q0, P, Q, alfa, beta, low, upp, epsi
+            a0, a, b, c, d, p0, q0, P, Q, alpha_beta, epsi
         )
 
     return state
