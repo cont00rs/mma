@@ -1,5 +1,7 @@
 ﻿"""The core MMA implementation."""
 
+from typing import Callable
+
 import numpy as np
 
 from mma.approximations import Approximations
@@ -11,7 +13,7 @@ from mma.target_function import TargetFunction
 
 def mma(
     x: np.ndarray,
-    func: callable,
+    func: Callable,
     bounds: Bounds,
     options: Options,
     coeff: Coefficients | None = None,
@@ -36,7 +38,7 @@ def mma(
     kktnorms = []
 
     # The iterations start
-    kktnorm = kkttol + 10
+    kktnorm: float = kkttol + 10
 
     for _ in range(options.iteration_count):
         if kktnorm <= kkttol:

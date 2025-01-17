@@ -34,3 +34,6 @@ jobs:
 
     - name: Run formatter
       run: uv run ruff format --diff
+
+    - name: Run mypy type checker
+      run: uv run mypy src/mma test/

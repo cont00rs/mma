@@ -222,7 +222,7 @@ def subsolv(
 
     """
     # Initial problem state as given in Section 5.5 beginning.
-    epsi = 1
+    epsi = 1.0
 
     state = State.from_alpha_beta(target_function.m, bounds, coeff.c)
 
