@@ -344,45 +344,25 @@ def line_search(
     # Obtain the Newton direction to search along.
     d_state = solve_newton_step(state, bounds, approx, coeff, b, epsi)
 
-    xx = np.concatenate(
-        (
-            state.y,
-            state.z,
-            state.lam,
-            state.xsi,
-            state.eta,
-            state.mu,
-            state.zet,
-            state.s,
-        ),
-        axis=0,
-    )
-
-    dxx = np.concatenate(
-        (
-            d_state.y,
-            d_state.z,
-            d_state.lam,
-            d_state.xsi,
-            d_state.eta,
-            d_state.mu,
-            d_state.zet,
-            d_state.s,
-        ),
-        axis=0,
-    )
+    # A smudge factor used in the step length decision.
+    # This is defined in Section 5.4.
+    factor = 1.01
 
     # Step length determination
-    stepxx = -1.01 * dxx / xx
-    stmxx = np.max(stepxx)
-    stepalfa = -1.01 * d_state.x / (state.x - bounds.alpha)
-    stmalfa = np.max(stepalfa)
-    stepbeta = 1.01 * d_state.x / (bounds.beta - state.x)
-    stmbeta = np.max(stepbeta)
-    stmalbe = np.maximum(stmalfa, stmbeta)
-    stmalbexx = np.maximum(stmalbe, stmxx)
-    stminv = np.maximum(stmalbexx, 1.0)
-    steg = 1.0 / stminv
+    # FIXME: Replace by slice once State is one single array.
+    attributes = ["y", "z", "lam", "xsi", "eta", "mu", "zet", "s"]
+    step_max_x = -factor * np.min(
+        [
+            np.min(getattr(d_state, attr) / getattr(state, attr))
+            for attr in attributes
+        ]
+    )
+    step_max_alpha = np.max(-factor * d_state.x / (state.x - bounds.alpha))
+    step_max_beta = np.max(factor * d_state.x / (bounds.beta - state.x))
+    step_max_alpha_beta = np.maximum(step_max_alpha, step_max_beta)
+    step_max_x_alpha_beta = np.maximum(step_max_alpha_beta, step_max_x)
+
+    step_max = 1.0 / np.maximum(step_max_x_alpha_beta, 1.0)
 
     # Keep current state without addition of any Newton step.
     old = state.copy()
@@ -396,14 +376,14 @@ def line_search(
     resinew = np.inf
 
     for iteration in range(options.line_search_iteration_count):
-        if resinew <= residunorm:
-            break
-
         # Step along the search direction.
-        scaling = steg / (2**iteration)
+        scaling = step_max / (2**iteration)
         state = old + d_state.scale(scaling)
 
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
         resinew, _ = state.relaxed_residual(coeff, b, approx, bounds, epsi)
+
+        if resinew <= residunorm:
+            break
 
     return state
