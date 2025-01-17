@@ -30,7 +30,7 @@ import numpy as np
 
 from mma.approximations import Approximations
 from mma.bounds import Bounds, MMABounds
-from mma.options import Options
+from mma.options import Coefficients, Options
 from mma.subsolve import State, subsolv
 
 
@@ -39,6 +39,7 @@ def mma(
     func: callable,
     bounds: Bounds,
     options: Options,
+    coeff: Coefficients | None = None,
 ):
     """Driver of the MMA optimization.
 
@@ -55,16 +56,7 @@ def mma(
 
     # Lower, upper bounds
     mma_bounds = MMABounds(bounds, options)
-
-    c = 1000 * np.ones((m, 1))
-
-    a0 = 1
-
-    # This implementations assumes `a_i = 0` and `d_i = 1`
-    # for all i to match the basic problem formulation as
-    # defined in equation (1.2) in mmagcmma.pdf.
-    a = np.zeros((m, 1))
-    d = np.ones((m, 1))
+    coeff = coeff if coeff else Coefficients.from_defaults(m)
 
     kkttol = 0
 
@@ -76,7 +68,6 @@ def mma(
     # The iterations start
     kktnorm = kkttol + 10
 
-    # FIXME: Should c, a0, a, d also be considered "options"?
     subproblem = SubProblem(options)
 
     for _ in range(options.iteration_count):
@@ -91,14 +82,10 @@ def mma(
             n,
             xval,
             mma_bounds,
-            f0val,
+            coeff,
             df0dx,
             fval,
             dfdx,
-            a0,
-            a,
-            c,
-            d,
         )
 
         # Some vectors are updated:
@@ -111,23 +98,12 @@ def mma(
         residu, kktnorm, residumax = kktcheck(
             m,
             n,
-            state.x,
-            state.y,
-            state.z,
-            state.lam,
-            state.xsi,
-            state.eta,
-            state.mu,
-            state.zet,
-            state.s,
+            state,
             mma_bounds.bounds,
             df0dx,
             fval,
             dfdx,
-            a0,
-            a,
-            c,
-            d,
+            coeff,
         )
 
         outvector1 = np.concatenate((f0val, fval))
@@ -158,14 +134,10 @@ class SubProblem:
         n: int,
         xval: np.ndarray,
         bounds: MMABounds,
-        f0val: float,
+        coeff: Coefficients,
         df0dx: np.ndarray,
         fval: np.ndarray,
         dfdx: np.ndarray,
-        a0: float,
-        a: np.ndarray,
-        c: np.ndarray,
-        d: np.ndarray,
     ) -> State:
         """
         Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
@@ -189,24 +161,9 @@ class SubProblem:
             dfdx (np.ndarray): Gradient of the constraint functions at xval.
             low (np.ndarray): Lower bounds for the variables from the previous iteration (provided that iter > 1).
             upp (np.ndarray): Upper bounds for the variables from the previous iteration (provided that iter > 1).
-            a0 (float): Constant in the term a_0 * z.
-            a (np.ndarray): Coefficients for the term a_i * z.
-            c (np.ndarray): Coefficients for the term c_i * y_i.
-            d (np.ndarray): Coefficients for the term 0.5 * d_i * (y_i)^2.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
-                - xmma (np.ndarray): Optimal values of the design variables.
-                - ymma (np.ndarray): Optimal values of the slack variables for constraints.
-                - zmma (float): Optimal value of the regularization variable z.
-                - lam (np.ndarray): Lagrange multipliers for the constraints.
-                - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
-                - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
-                - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
-                - zet (float): Lagrange multiplier for the regularization term z.
-                - s (np.ndarray): Slack variables for the general constraints.
-                - low (np.ndarray): Updated lower bounds for the design variables.
-                - upp (np.ndarray): Updated upper bounds for the design variables.
+            state (State)
         """
         # Calculation of the asymptotes low and upp.
         bounds.update_asymptotes(xval, self.xold1, self.xold2)
@@ -223,7 +180,7 @@ class SubProblem:
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
         # b (np.ndarray): Right-hand side constants in the constraints.
-        state = subsolv(m, n, bounds, approx, a0, a, b, c, d)
+        state = subsolv(m, n, bounds, approx, coeff, b)
 
         # Store design variables of last two iterations.
         self.xold2 = None if self.xold1 is None else self.xold1.copy()
@@ -235,23 +192,12 @@ class SubProblem:
 def kktcheck(
     m: int,
     n: int,
-    x: np.ndarray,
-    y: np.ndarray,
-    z: float,
-    lam: np.ndarray,
-    xsi: np.ndarray,
-    eta: np.ndarray,
-    mu: np.ndarray,
-    zet: float,
-    s: np.ndarray,
+    state: State,
     bounds: Bounds,
     df0dx: np.ndarray,
     fval: np.ndarray,
     dfdx: np.ndarray,
-    a0: float,
-    a: np.ndarray,
-    c: np.ndarray,
-    d: np.ndarray,
+    coeff: Coefficients,
 ) -> Tuple[np.ndarray, float, float]:
     """
     Evaluate the residuals for the Karush-Kuhn-Tucker (KKT) conditions of a nonlinear programming problem.
@@ -262,15 +208,7 @@ def kktcheck(
     Args:
         m (int): Number of general constraints.
         n (int): Number of variables.
-        x (np.ndarray): Current values of the variables.
-        y (np.ndarray): Current values of the general constraints' slack variables.
-        z (float): Current value of the single variable in the problem.
-        lam (np.ndarray): Lagrange multipliers for the general constraints.
-        xsi (np.ndarray): Lagrange multipliers for the lower bound constraints on variables.
-        eta (np.ndarray): Lagrange multipliers for the upper bound constraints on variables.
-        mu (np.ndarray): Lagrange multipliers for the non-negativity constraints on slack variables.
-        zet (float): Lagrange multiplier for the non-negativity constraint on z.
-        s (np.ndarray): Slack variables for the general constraints.
+        state (State): Current state of the optimization problem.
         bounds (Bounds): Lower and upper bounds for the variables.
         df0dx (np.ndarray): Gradient of the objective function with respect to the variables.
         fval (np.ndarray): Values of the constraint functions.
@@ -288,15 +226,15 @@ def kktcheck(
     """
 
     # Compute residuals for the KKT conditions
-    rex = df0dx + np.dot(dfdx.T, lam) - xsi + eta
-    rey = c + d * y - mu - lam
-    rez = a0 - zet - np.dot(a.T, lam)
-    relam = fval - a * z - y + s
-    rexsi = xsi * (x - bounds.lower())
-    reeta = eta * (bounds.upper() - x)
-    remu = mu * y
-    rezet = zet * z
-    res = lam * s
+    rex = df0dx + np.dot(dfdx.T, state.lam) - state.xsi + state.eta
+    rey = coeff.c + coeff.d * state.y - state.mu - state.lam
+    rez = coeff.a0 - state.zet - np.dot(coeff.a.T, state.lam)
+    relam = fval - coeff.a * state.z - state.y + state.s
+    rexsi = state.xsi * (state.x - bounds.lower())
+    reeta = state.eta * (bounds.upper() - state.x)
+    remu = state.mu * state.y
+    rezet = state.zet * state.z
+    res = state.lam * state.s
 
     # Concatenate residuals into a single vector
     residu1 = np.concatenate((rex, rey, rez), axis=0)

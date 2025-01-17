@@ -4,6 +4,7 @@ from scipy.sparse import diags
 
 from mma.approximations import Approximations
 from mma.bounds import MMABounds
+from mma.options import Coefficients
 
 
 class State:
@@ -13,8 +14,12 @@ class State:
         - xmma (np.ndarray): Optimal values of the variables x_j.
         - ymma (np.ndarray): Optimal values of the variables y_i.
         - zmma (float): Optimal value of the variable z.
-        - slack (np.ndarray): Slack variables for the general MMA constraints.
-        - lagrange (np.ndarray): Lagrange multipliers for the constraints.
+        - lam (np.ndarray): Lagrange multipliers for the constraints.
+        - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
+        - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
+        - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
+        - zet (float): Lagrange multiplier for the regularization term z.
+        - s (np.ndarray): Slack variables for the general constraints.
     """
 
     def __init__(self, x, y, z, lam, xsi, eta, mu, zet, s):
@@ -84,7 +89,12 @@ class State:
         return self
 
     def relaxed_residual(
-        self, a0, a, b, c, d, approx: Approximations, bounds: MMABounds, epsi
+        self,
+        coeff: Coefficients,
+        b: np.ndarray,
+        approx: Approximations,
+        bounds: MMABounds,
+        epsi,
     ):
         """Calculate residuals of the relaxed equations.
 
@@ -105,9 +115,9 @@ class State:
 
         relaxed = State(
             dpsidx - self.xsi + self.eta,
-            c + d * self.y - self.mu - self.lam,
-            a0 - self.zet - a.T @ self.lam,
-            gvec - a * self.z - self.y + self.s - b,
+            coeff.c + coeff.d * self.y - self.mu - self.lam,
+            coeff.a0 - self.zet - coeff.a.T @ self.lam,
+            gvec - coeff.a * self.z - self.y + self.s - b,
             self.xsi * (self.x - bounds.alpha) - epsi,
             self.eta * (bounds.beta - self.x) - epsi,
             self.mu * self.y - epsi,
@@ -141,11 +151,8 @@ def subsolv(
     n: int,
     bounds: MMABounds,
     approx: Approximations,
-    a0: float,
-    a: np.ndarray,
+    coeff: Coefficients,
     b: np.ndarray,
-    c: np.ndarray,
-    d: np.ndarray,
 ) -> State:
     """
     Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
@@ -160,14 +167,9 @@ def subsolv(
     Args:
         m (int): Number of constraints.
         n (int): Number of variables.
-        low (np.ndarray): Lower bounds for the variables x_j.
-        upp (np.ndarray): Upper bounds for the variables x_j.
-        alfa (np.ndarray): Lower asymptotes for the variables.
-        beta (np.ndarray): Upper asymptotes for the variables.
-        a0 (float): Constant term in the objective function.
-        a (np.ndarray): Coefficients for the constraints involving z.
-        c (np.ndarray): Coefficients for the terms involving y in the constraints.
-        d (np.ndarray): Coefficients for the quadratic terms involving y in the objective function.
+        bounds (Bounds)
+        coeff (Coefficients)
+        b (np.ndarray): Residual vector
 
     Returns:
         State
@@ -176,7 +178,7 @@ def subsolv(
     # Initial problem state as given in Section 5.5 beginning.
     epsi = 1
 
-    state = State.from_alpha_beta(n, m, bounds, c)
+    state = State.from_alpha_beta(n, m, bounds, coeff.c)
 
     # A small positive number to ensure numerical stability.
     epsimin = 1e-7
@@ -188,7 +190,7 @@ def subsolv(
         for _ in range(iteration_count):
             # Compute relaxed optimality conditions, Section 5.2.
             _, residumax = state.relaxed_residual(
-                a0, a, b, c, d, approx, bounds, epsi
+                coeff, b, approx, bounds, epsi
             )
 
             if residumax <= 0.9 * epsi:
@@ -198,12 +200,8 @@ def subsolv(
                 state,
                 bounds,
                 approx,
-                # parameters
-                a0,
-                a,
+                coeff,
                 b,
-                c,
-                d,
                 epsi,
             )
 
@@ -212,12 +210,8 @@ def subsolv(
                 approx,
                 state,
                 d_state,
-                # parameters
-                a0,
-                a,
+                coeff,
                 b,
-                c,
-                d,
                 epsi,
             )
 
@@ -231,12 +225,8 @@ def solve_newton_step(
     state,
     bounds: MMABounds,
     approx: Approximations,
-    # parameters
-    a0,
-    a,
+    coeff: Coefficients,
     b,
-    c,
-    d,
     epsi,
 ):
     ux1 = bounds.upp - state.x
@@ -261,9 +251,9 @@ def solve_newton_step(
         - epsi / (state.x - bounds.alpha)
         + epsi / (bounds.beta - state.x)
     )
-    dely = c + d * state.y - state.lam - epsi / state.y
-    delz = a0 - np.dot(a.T, state.lam) - epsi / state.z
-    dellam = gvec - a * state.z - state.y - b + epsi / state.lam
+    dely = coeff.c + coeff.d * state.y - state.lam - epsi / state.y
+    delz = coeff.a0 - np.dot(coeff.a.T, state.lam) - epsi / state.z
+    dellam = gvec - coeff.a * state.z - state.y - b + epsi / state.lam
     diagx = plam / ux3 + qlam / xl3
     diagx = (
         2 * diagx
@@ -271,7 +261,7 @@ def solve_newton_step(
         + state.eta / (bounds.beta - state.x)
     )
     diagxinv = 1 / diagx
-    diagy = d + state.mu / state.y
+    diagy = coeff.d + state.mu / state.y
     diagyinv = 1 / diagy
     diaglam = state.s / state.lam
     diaglamyi = diaglam + diagyinv
@@ -294,8 +284,8 @@ def solve_newton_step(
             diags(diaglamyi.flatten(), 0)
             + (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T)
         )
-        AAr1 = np.concatenate((Alam, a), axis=1)
-        AAr2 = np.concatenate((a, -state.zet / state.z), axis=0).T
+        AAr1 = np.concatenate((Alam, coeff.a), axis=1)
+        AAr2 = np.concatenate((coeff.a, -state.zet / state.z), axis=0).T
         AA = np.concatenate((AAr1, AAr2), axis=0)
         solut = solve(AA, bb)
         dlam = solut[0:m]
@@ -312,10 +302,10 @@ def solve_newton_step(
             diags(diagx.flatten(), 0)
             + (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG)
         )
-        azz = state.zet / state.z + np.dot(a.T, (a / diaglamyi))
-        axz = np.dot(-GG.T, (a / diaglamyi))
+        azz = state.zet / state.z + np.dot(coeff.a.T, (coeff.a / diaglamyi))
+        axz = np.dot(-GG.T, (coeff.a / diaglamyi))
         bx = delx + np.dot(GG.T, (dellamyi / diaglamyi))
-        bz = delz - np.dot(a.T, (dellamyi / diaglamyi))
+        bz = delz - np.dot(coeff.a.T, (dellamyi / diaglamyi))
         AAr1 = np.concatenate((Axx, axz), axis=1)
         AAr2 = np.concatenate((axz.T, azz), axis=1)
         AA = np.concatenate((AAr1, AAr2), axis=0)
@@ -325,7 +315,7 @@ def solve_newton_step(
         dz = solut[n : n + 1]
         dlam = (
             np.dot(GG, dx) / diaglamyi
-            - dz * (a / diaglamyi)
+            - dz * (coeff.a / diaglamyi)
             + dellamyi / diaglamyi
         )
 
@@ -355,12 +345,8 @@ def line_search(
     approx: Approximations,
     state: State,
     d_state,
-    # parameters
-    a0,
-    a,
-    b,
-    c,
-    d,
+    coeff: Coefficients,
+    b: np.ndarray,
     epsi,
 ):
     """Line search along Newton descent direction.
@@ -417,9 +403,7 @@ def line_search(
     old = state.copy()
 
     # Initial residual to be improved up on.
-    residunorm, _ = state.relaxed_residual(
-        a0, a, b, c, d, approx, bounds, epsi
-    )
+    residunorm, _ = state.relaxed_residual(coeff, b, approx, bounds, epsi)
 
     # Find largest step sizes that decreases the residual.
     # Since the direction is a descent direction, a reduction will be found.
@@ -436,8 +420,6 @@ def line_search(
         state = old + d_state.scale(scaling)
 
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
-        resinew, residumax = state.relaxed_residual(
-            a0, a, b, c, d, approx, bounds, epsi
-        )
+        resinew, _ = state.relaxed_residual(coeff, b, approx, bounds, epsi)
 
     return state
