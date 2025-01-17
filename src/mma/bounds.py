@@ -76,7 +76,7 @@ class MMABounds:
             out=self.upp,
         )
 
-    def calculate_alpha_beta(self, xval):
+    def calculate_alpha_beta(self, x: np.ndarray):
         """Calculation of the bounds alpha and beta.
 
         Equations 3.6 and 3.7.
@@ -84,14 +84,14 @@ class MMABounds:
 
         # Restrict lower bound with move limit.
         lower_bound = np.maximum(
-            self.low + self.options.alpha_factor * (xval - self.low),
-            xval - self.options.move_limit * self.bounds.delta(),
+            self.low + self.options.alpha_factor * (x - self.low),
+            x - self.options.move_limit * self.bounds.delta(),
         )
 
         # Restrict upper bound with move limit.
         upper_bound = np.minimum(
-            self.upp - self.options.beta_factor * (self.upp - xval),
-            xval + self.options.move_limit * self.bounds.delta(),
+            self.upp - self.options.beta_factor * (self.upp - x),
+            x + self.options.move_limit * self.bounds.delta(),
         )
 
         # Restrict bounds with variable bounds.

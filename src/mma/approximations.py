@@ -10,7 +10,6 @@ class Approximations:
 
     def __init__(
         self,
-        xval,
         target_function: TargetFunction,
         bounds: MMABounds,
         raa0: float,
@@ -26,15 +25,15 @@ class Approximations:
         self.raa0 = raa0
 
         self.p0, self.q0 = self.approximating_functions(
-            xval, target_function.df0dx, bounds, objective=True
+            target_function.x, target_function.df0dx, bounds, objective=True
         )
 
         self.P, self.Q = self.approximating_functions(
-            xval, target_function.dfdx, bounds, objective=False
+            target_function.x, target_function.dfdx, bounds, objective=False
         )
 
     def approximating_functions(
-        self, xval, dfdx, bounds: MMABounds, objective=True
+        self, x, dfdx, bounds: MMABounds, objective=True
     ):
         """Calculate approximating functions "P" and "Q".
 
@@ -64,12 +63,12 @@ class Approximations:
         # Equation 3.3.
         p0 = (1 + self.factor) * df_plus + self.factor * df_minus
         p0 += self.raa0 * delta_inv
-        p0 = diags_array(((bounds.upp - xval) ** 2).squeeze(axis=1)) @ p0
+        p0 = diags_array(((bounds.upp - x) ** 2).squeeze(axis=1)) @ p0
 
         # Equation 3.4.
         q0 = self.factor * df_plus + (1 + self.factor) * df_minus
         q0 += self.raa0 * delta_inv
-        q0 = diags_array(((xval - bounds.low) ** 2).squeeze(axis=1)) @ q0
+        q0 = diags_array(((x - bounds.low) ** 2).squeeze(axis=1)) @ q0
 
         if objective:
             return p0, q0
@@ -77,12 +76,12 @@ class Approximations:
             return p0.T, q0.T
 
     def residual(
-        self, bounds: MMABounds, xval, target_function: TargetFunction
+        self, bounds: MMABounds, target_function: TargetFunction
     ) -> np.ndarray:
         """Negative residual between approximating functions and objective.
 
         Described in beginning of Section 5.
         """
-        p = self.P @ (1 / (bounds.upp - xval))
-        q = self.Q @ (1 / (xval - bounds.low))
+        p = self.P @ (1 / (bounds.upp - target_function.x))
+        q = self.Q @ (1 / (target_function.x - bounds.low))
         return p + q - target_function.f

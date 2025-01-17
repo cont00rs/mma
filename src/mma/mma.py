@@ -50,8 +50,8 @@ def mma(
     m = 1 if isinstance(fval, float) else len(fval)
     n = len(x)
 
-    # Initialisation.
-    xval = x.copy()
+    # Initialise at first iterate.
+    target_function = TargetFunction(func, x.copy())
 
     # Lower, upper bounds
     mma_bounds = MMABounds(bounds, options)
@@ -66,30 +66,23 @@ def mma(
 
     # The iterations start
     kktnorm = kkttol + 10
-
-    # Initialise at first iterate.
-    target_function = TargetFunction(func, xval)
-
     subproblem = SubProblem(options)
 
     for _ in range(options.iteration_count):
         if kktnorm <= kkttol:
             break
 
-        # The MMA subproblem is solved at the point xval:
+        # The MMA subproblem is solved at the current point (`xval`).
         state = subproblem.mmasub(
             m,
             n,
-            xval,
             mma_bounds,
             coeff,
             target_function,
         )
 
-        xval = state.x
-
         # Re-calculate function values, gradients at next iterate.
-        target_function.evaluate(xval)
+        target_function.evaluate(state.x)
 
         # The residual vector of the KKT conditions is calculated
         kktnorm = kktcheck(
@@ -100,7 +93,7 @@ def mma(
         )
 
         outvector1 = np.concatenate((target_function.f0, target_function.f))
-        outvector2 = state.x.flatten()
+        outvector2 = target_function.x.flatten()
         outvector1s += [outvector1.flatten()]
         outvector2s += [outvector2]
         kktnorms += [kktnorm]
@@ -125,7 +118,6 @@ class SubProblem:
         self,
         m: int,
         n: int,
-        xval: np.ndarray,
         bounds: MMABounds,
         coeff: Coefficients,
         target_function: TargetFunction,
@@ -144,7 +136,6 @@ class SubProblem:
         Args:
             m (int): Number of constraints.
             n (int): Number of variables.
-            xval (np.ndarray): Current values of the design variables.
             bounds (Bounds)
             coeff (Coefficients)
             target_function (TargetFunction)
@@ -153,18 +144,16 @@ class SubProblem:
             state (State)
         """
         # Calculation of the asymptotes low and upp.
-        bounds.update_asymptotes(xval, self.xold1, self.xold2)
+        bounds.update_asymptotes(target_function.x, self.xold1, self.xold2)
 
         # Calculation of the bounds alfa and beta.
-        bounds.calculate_alpha_beta(xval)
+        bounds.calculate_alpha_beta(target_function.x)
 
         # Calculations approximating functions: P, Q.
-        approx = Approximations(
-            xval, target_function, bounds, self.options.raa0
-        )
+        approx = Approximations(target_function, bounds, self.options.raa0)
 
         # Negative residual.
-        b = approx.residual(bounds, xval, target_function)
+        b = approx.residual(bounds, target_function)
 
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
@@ -173,7 +162,7 @@ class SubProblem:
 
         # Store design variables of last two iterations.
         self.xold2 = None if self.xold1 is None else self.xold1.copy()
-        self.xold1 = xval.copy()
+        self.xold1 = target_function.x.copy()
 
         return state
 
