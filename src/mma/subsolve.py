@@ -5,6 +5,7 @@ from scipy.sparse import diags
 from mma.approximations import Approximations
 from mma.bounds import MMABounds
 from mma.options import Coefficients
+from mma.target_function import TargetFunction
 
 
 class State:
@@ -151,8 +152,8 @@ def subsolv(
     n: int,
     bounds: MMABounds,
     approx: Approximations,
+    target_function: TargetFunction,
     coeff: Coefficients,
-    b: np.ndarray,
 ) -> State:
     """
     Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
@@ -168,8 +169,9 @@ def subsolv(
         m (int): Number of constraints.
         n (int): Number of variables.
         bounds (Bounds)
+        approx (Approximations)
+        target_function (TargetFunction)
         coeff (Coefficients)
-        b (np.ndarray): Residual vector
 
     Returns:
         State
@@ -183,6 +185,9 @@ def subsolv(
     # A small positive number to ensure numerical stability.
     epsimin = 1e-7
     iteration_count = 200
+
+    # Negative residual.
+    b = approx.residual(bounds, target_function)
 
     # Start while loop for numerical stability
     while epsi > epsimin:

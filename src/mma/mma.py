@@ -152,13 +152,8 @@ class SubProblem:
         # Calculations approximating functions: P, Q.
         approx = Approximations(target_function, bounds, self.options.raa0)
 
-        # Negative residual.
-        b = approx.residual(bounds, target_function)
-
         # Solving the subproblem using the primal-dual Newton method
-        # FIXME: Move options for Newton method into dataclass.
-        # b (np.ndarray): Right-hand side constants in the constraints.
-        state = subsolv(m, n, bounds, approx, coeff, b)
+        state = subsolv(m, n, bounds, approx, target_function, coeff)
 
         # Store design variables of last two iterations.
         self.xold2 = None if self.xold1 is None else self.xold1.copy()
