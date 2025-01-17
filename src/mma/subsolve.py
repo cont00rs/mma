@@ -1,8 +1,11 @@
 import numpy as np
 from scipy.linalg import solve
-from scipy.sparse import diags
+from scipy.sparse import diags_array
 
+from mma.approximations import Approximations
 from mma.bounds import MMABounds
+from mma.options import Coefficients, Options
+from mma.target_function import TargetFunction
 
 
 class State:
@@ -12,23 +15,20 @@ class State:
         - xmma (np.ndarray): Optimal values of the variables x_j.
         - ymma (np.ndarray): Optimal values of the variables y_i.
         - zmma (float): Optimal value of the variable z.
-        - slack (np.ndarray): Slack variables for the general MMA constraints.
-        - lagrange (np.ndarray): Lagrange multipliers for the constraints.
+        - lam (np.ndarray): Lagrange multipliers for the constraints.
+        - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
+        - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
+        - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
+        - zet (float): Lagrange multiplier for the regularization term z.
+        - s (np.ndarray): Slack variables for the general constraints.
     """
 
-    def __init__(self, x, y, z, lam, xsi, eta, mu, zet, s):
-        self.x = x
-        self.y = y
-        self.z = z
-        self.lam = lam
-        self.xsi = xsi
-        self.eta = eta
-        self.mu = mu
-        self.zet = zet
-        self.s = s
+    def __init__(self, state: np.ndarray, offsets: dict[str, tuple[int, int]]):
+        self.state = state
+        self.offsets = offsets
 
     @classmethod
-    def from_alpha_beta(cls, n, m, bounds, c):
+    def from_alpha_beta(cls, m: int, bounds: MMABounds, c: np.ndarray):
         x = (bounds.alpha + bounds.beta) / 2
         y = np.ones((m, 1))
         z = np.array([[1.0]])
@@ -38,53 +38,114 @@ class State:
         mu = np.maximum(np.ones((m, 1)), 0.5 * c)
         zet = np.array([[1.0]])
         s = np.ones((m, 1))
+        return State.from_variables(x, y, z, lam, xsi, eta, mu, zet, s)
 
-        return State(x, y, z, lam, xsi, eta, mu, zet, s)
+    @classmethod
+    def from_variables(cls, x, y, z, lam, xsi, eta, mu, zet, s):
+        attributes = [
+            "x",
+            "y",
+            "z",
+            "lam",
+            "xsi",
+            "eta",
+            "mu",
+            "zet",
+            "s",
+        ]
+
+        arguments = [
+            x,
+            y,
+            z,
+            lam,
+            xsi,
+            eta,
+            mu,
+            zet,
+            s,
+        ]
+
+        offset = 0
+        offsets = dict()
+        for attr, arg in zip(attributes, arguments):
+            offsets[attr] = (offset, offset + len(arg))
+            offset += len(arg)
+
+        return State(np.concatenate(arguments, axis=0), offsets)
+
+    # TODO: Can these properties be generated?
+
+    @property
+    def x(self):
+        start, end = self.offsets["x"]
+        return self.state[start:end]
+
+    @property
+    def y(self):
+        start, end = self.offsets["y"]
+        return self.state[start:end]
+
+    @property
+    def z(self):
+        start, end = self.offsets["z"]
+        return self.state[start:end]
+
+    @property
+    def lam(self):
+        start, end = self.offsets["lam"]
+        return self.state[start:end]
+
+    @property
+    def xsi(self):
+        start, end = self.offsets["xsi"]
+        return self.state[start:end]
+
+    @property
+    def eta(self):
+        start, end = self.offsets["eta"]
+        return self.state[start:end]
+
+    @property
+    def mu(self):
+        start, end = self.offsets["mu"]
+        return self.state[start:end]
+
+    @property
+    def zet(self):
+        start, end = self.offsets["zet"]
+        return self.state[start:end]
+
+    @property
+    def s(self):
+        start, end = self.offsets["s"]
+        return self.state[start:end]
 
     def copy(self):
-        return State(
-            self.x.copy(),
-            self.y.copy(),
-            self.z.copy(),
-            self.lam.copy(),
-            self.xsi.copy(),
-            self.eta.copy(),
-            self.mu.copy(),
-            self.zet.copy(),
-            self.s.copy(),
-        )
+        return State(self.state.copy(), self.offsets)
 
     def __add__(self, other):
         assert isinstance(other, State)
-
-        return State(
-            self.x + other.x,
-            self.y + other.y,
-            self.z + other.z,
-            self.lam + other.lam,
-            self.xsi + other.xsi,
-            self.eta + other.eta,
-            self.mu + other.mu,
-            self.zet + other.zet,
-            self.s + other.s,
-        )
+        assert len(self.state) == len(other.state)
+        return State(self.state + other.state, self.offsets)
 
     def scale(self, value: int | float):
         """Scale all state variables."""
-        self.x *= value
-        self.y *= value
-        self.z *= value
-        self.lam *= value
-        self.xsi *= value
-        self.eta *= value
-        self.mu *= value
-        self.zet *= value
-        self.s *= value
+        self.state *= value
         return self
 
+    def residual(self) -> tuple[float, float]:
+        """Return the 2-norm of the state and maximum absolute state value."""
+        return np.linalg.norm(self.state).item(), np.max(np.abs(self.state))
+
     def relaxed_residual(
-        self, a0, a, b, c, d, p0, q0, P, Q, bounds: MMABounds, epsi
-    ):
+        self,
+        coeff: Coefficients,
+        b: np.ndarray,
+        approx: Approximations,
+        bounds: MMABounds,
+        epsi,
+    ) -> tuple[float, float]:
         """Calculate residuals of the relaxed equations.
 
         The state equations are converted to their "relaxed" form,
@@ -92,9 +153,9 @@ class State:
         full state vector of all equations.
         """
 
-        plam = p0 + P.T @ self.lam
-        qlam = q0 + Q.T @ self.lam
-        gvec = P @ (1 / (bounds.upp - self.x)) + Q @ (
+        plam = approx.p0 + approx.P.T @ self.lam
+        qlam = approx.q0 + approx.Q.T @ self.lam
+        gvec = approx.P @ (1 / (bounds.upp - self.x)) + approx.Q @ (
             1 / (self.x - bounds.low)
         )
         dpsidx = (
@@ -102,52 +163,25 @@ class State:
             - qlam / (self.x - bounds.low) ** 2
         )
 
-        relaxed = State(
+        return State.from_variables(
             dpsidx - self.xsi + self.eta,
-            c + d * self.y - self.mu - self.lam,
-            a0 - self.zet - a.T @ self.lam,
-            gvec - a * self.z - self.y + self.s - b,
+            coeff.c + coeff.d * self.y - self.mu - self.lam,
+            coeff.a0 - self.zet - coeff.a.T @ self.lam,
+            gvec - coeff.a * self.z - self.y + self.s - b,
             self.xsi * (self.x - bounds.alpha) - epsi,
             self.eta * (bounds.beta - self.x) - epsi,
             self.mu * self.y - epsi,
             self.zet * self.z - epsi,
             self.lam * self.s - epsi,
-        )
-
-        residual = np.concatenate(
-            (
-                relaxed.x,
-                relaxed.y,
-                relaxed.z,
-                relaxed.lam,
-                relaxed.xsi,
-                relaxed.eta,
-                relaxed.mu,
-                relaxed.zet,
-                relaxed.s,
-            ),
-            axis=0,
-        )
-
-        norm = np.sqrt(np.dot(residual.T, residual).item())
-        norm_max = np.max(np.abs(residual))
-
-        return norm, norm_max
+        ).residual()
 
 
 def subsolv(
-    m: int,
-    n: int,
+    target_function: TargetFunction,
     bounds: MMABounds,
-    p0: np.ndarray,
-    q0: np.ndarray,
-    P: np.ndarray,
-    Q: np.ndarray,
-    a0: float,
-    a: np.ndarray,
-    b: np.ndarray,
-    c: np.ndarray,
-    d: np.ndarray,
+    approx: Approximations,
+    coeff: Coefficients,
+    options: Options,
 ) -> State:
     """
     Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
@@ -160,21 +194,11 @@ def subsolv(
         alfa_j <= xj <= beta_j, yi >= 0, z >= 0.
 
     Args:
-        m (int): Number of constraints.
-        n (int): Number of variables.
-        low (np.ndarray): Lower bounds for the variables x_j.
-        upp (np.ndarray): Upper bounds for the variables x_j.
-        alfa (np.ndarray): Lower asymptotes for the variables.
-        beta (np.ndarray): Upper asymptotes for the variables.
-        p0 (np.ndarray): Coefficients for the lower bound terms.
-        q0 (np.ndarray): Coefficients for the upper bound terms.
-        P (np.ndarray): Matrix of coefficients for the lower bound terms in the constraints.
-        Q (np.ndarray): Matrix of coefficients for the upper bound terms in the constraints.
-        a0 (float): Constant term in the objective function.
-        a (np.ndarray): Coefficients for the constraints involving z.
-        b (np.ndarray): Right-hand side constants in the constraints.
-        c (np.ndarray): Coefficients for the terms involving y in the constraints.
-        d (np.ndarray): Coefficients for the quadratic terms involving y in the objective function.
+        target_function (TargetFunction)
+        bounds (Bounds)
+        approx (Approximations)
+        coeff (Coefficients)
+        options (Options)
 
     Returns:
         State
@@ -183,119 +207,78 @@ def subsolv(
     # Initial problem state as given in Section 5.5 beginning.
     epsi = 1
 
-    state = State.from_alpha_beta(n, m, bounds, c)
+    state = State.from_alpha_beta(target_function.m, bounds, coeff.c)
 
-    # A small positive number to ensure numerical stability.
-    epsimin = 1e-7
-    iteration_count = 200
+    # Negative residual.
+    b = approx.residual(bounds, target_function)
 
     # Start while loop for numerical stability
-    while epsi > epsimin:
+    while epsi > options.epsimin:
         # Start inner while loop for optimization
-        for _ in range(iteration_count):
+        for _ in range(options.iteration_count):
             # Compute relaxed optimality conditions, Section 5.2.
-            residunorm, residumax = state.relaxed_residual(
-                a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
+            _, residual = state.relaxed_residual(
+                coeff, b, approx, bounds, epsi
             )
 
-            if residumax <= 0.9 * epsi:
+            if residual <= 0.9 * epsi:
                 break
 
-            d_state = solve_newton_step(
-                state,
-                # bounds
-                bounds,
-                # approximations
-                p0,
-                q0,
-                P,
-                Q,
-                # parameters
-                a0,
-                a,
-                b,
-                c,
-                d,
-                epsi,
-            )
-
-            state = line_search(
-                # bounds
-                bounds,
-                # approximations
-                p0,
-                q0,
-                P,
-                Q,
-                state,
-                d_state,
-                # parameters
-                a0,
-                a,
-                b,
-                c,
-                d,
-                epsi,
-            )
+            state = line_search(bounds, approx, state, coeff, b, options, epsi)
 
         epsi = 0.1 * epsi
 
     return state
 
 
-# FIXME: Match this to interface of `line_search`.
 def solve_newton_step(
-    state,
+    state: State,
     bounds: MMABounds,
-    # approximations
-    p0,
-    q0,
-    P,
-    Q,
-    # parameters
-    a0,
-    a,
-    b,
-    c,
-    d,
-    epsi,
+    approx: Approximations,
+    coeff: Coefficients,
+    b: np.ndarray,
+    epsi: float,
 ):
-    ux1 = bounds.upp - state.x
-    xl1 = state.x - bounds.low
-    ux2 = ux1 * ux1
-    xl2 = xl1 * xl1
-    ux3 = ux1 * ux2
-    xl3 = xl1 * xl2
-    uxinv1 = 1 / ux1
-    xlinv1 = 1 / xl1
-    uxinv2 = 1 / ux2
-    xlinv2 = 1 / xl2
-    plam = p0 + np.dot(P.T, state.lam)
-    qlam = q0 + np.dot(Q.T, state.lam)
-    gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-    GG = (diags(uxinv2.flatten(), 0).dot(P.T)).T - (
-        diags(xlinv2.flatten(), 0).dot(Q.T)
-    ).T
-    dpsidx = plam / ux2 - qlam / xl2
-    delx = (
-        dpsidx
-        - epsi / (state.x - bounds.alpha)
-        + epsi / (bounds.beta - state.x)
-    )
-    dely = c + d * state.y - state.lam - epsi / state.y
-    delz = a0 - np.dot(a.T, state.lam) - epsi / state.z
-    dellam = gvec - a * state.z - state.y - b + epsi / state.lam
-    diagx = plam / ux3 + qlam / xl3
-    diagx = (
-        2 * diagx
-        + state.xsi / (state.x - bounds.alpha)
-        + state.eta / (bounds.beta - state.x)
-    )
-    diagxinv = 1 / diagx
-    diagy = d + state.mu / state.y
-    diagyinv = 1 / diagy
-    diaglam = state.s / state.lam
-    diaglamyi = diaglam + diagyinv
+    ux = bounds.upp - state.x
+    xl = state.x - bounds.low
+
+    # Equation 5.5
+    plam = approx.p0 + approx.P.T @ state.lam
+    qlam = approx.q0 + approx.Q.T @ state.lam
+
+    # Equation 5.2.
+    gvec = approx.P @ np.reciprocal(ux) + approx.Q @ np.reciprocal(xl)
+
+    # Equation 5.12.
+    GG = approx.P @ diags_array(np.reciprocal(ux**2).squeeze(axis=1))
+    GG -= approx.Q @ diags_array(np.reciprocal(xl**2).squeeze(axis=1))
+
+    # Equation 5.8 (dpsi/dxj) and Equation 5.15d.
+    delx = plam / ux**2
+    delx -= qlam / xl**2
+    delx -= epsi / (state.x - bounds.alpha)
+    delx += epsi / (bounds.beta - state.x)
+
+    # Equation 5.15e.
+    dely = coeff.c + coeff.d * state.y - state.lam - epsi / state.y
+
+    # Equation 5.15f.
+    delz = coeff.a0 - coeff.a.T @ state.lam - epsi / state.z
+
+    # Equation 5.15g.
+    dellam = gvec - coeff.a * state.z - state.y - b + epsi / state.lam
+
+    # Equation 5.15a.
+    diagx = 2 * plam / ux**3
+    diagx += 2 * qlam / xl**3
+    diagx += state.xsi / (state.x - bounds.alpha)
+    diagx += state.eta / (bounds.beta - state.x)
+
+    # Equation 5.15b.
+    diagy = coeff.d + state.mu / state.y
+
+    # Equation 5.15c.
+    diaglamy = state.s / state.lam + np.reciprocal(diagy)
 
     # Solve system of equations
     # The size of design variables and constraint functions play
@@ -309,84 +292,69 @@ def solve_newton_step(
         # Delta x is eliminated (Equation 5.19) and the system
         # of equations in delta lambda, delta z is constructed.
         # This represents Equation 5.20.
-        blam = dellam + dely / diagy - np.dot(GG, (delx / diagx))
-        bb = np.concatenate((blam, delz), axis=0)
-        Alam = np.asarray(
-            diags(diaglamyi.flatten(), 0)
-            + (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T)
-        )
-        AAr1 = np.concatenate((Alam, a), axis=1)
-        AAr2 = np.concatenate((a, -state.zet / state.z), axis=0).T
-        AA = np.concatenate((AAr1, AAr2), axis=0)
-        solut = solve(AA, bb)
-        dlam = solut[0:m]
+        Alam = diags_array(diaglamy.squeeze(axis=1))
+        Alam += GG @ diags_array(np.reciprocal(diagx).squeeze(axis=1)) @ GG.T
+        AA = np.block([[Alam, coeff.a], [coeff.a.T, -state.zet / state.z]])
 
-        dz = solut[m : m + 1]
-        dx = -delx / diagx - np.dot(GG.T, dlam) / diagx
+        bb = np.vstack([dellam + dely / diagy - GG @ (delx / diagx), delz])
+        dlam_dz = solve(AA, bb)
+        dlam, dz = dlam_dz[0:m], dlam_dz[m:]
+        dx = -(delx + GG.T @ dlam) / diagx
     else:
         # Delta lambda is eliminated (Equation 5.21) and the system
         # of equations in delta x, delta z is constructed. This
         # represents Equation 5.22.
-        diaglamyiinv = 1 / diaglamyi
         dellamyi = dellam + dely / diagy
-        Axx = np.asarray(
-            diags(diagx.flatten(), 0)
-            + (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG)
-        )
-        azz = state.zet / state.z + np.dot(a.T, (a / diaglamyi))
-        axz = np.dot(-GG.T, (a / diaglamyi))
-        bx = delx + np.dot(GG.T, (dellamyi / diaglamyi))
-        bz = delz - np.dot(a.T, (dellamyi / diaglamyi))
-        AAr1 = np.concatenate((Axx, axz), axis=1)
-        AAr2 = np.concatenate((axz.T, azz), axis=1)
-        AA = np.concatenate((AAr1, AAr2), axis=0)
-        bb = np.concatenate((-bx, -bz), axis=0)
-        solut = solve(AA, bb)
-        dx = solut[0:n]
-        dz = solut[n : n + 1]
-        dlam = (
-            np.dot(GG, dx) / diaglamyi
-            - dz * (a / diaglamyi)
-            + dellamyi / diaglamyi
-        )
+
+        Axx = diags_array(diagx.squeeze(axis=1))
+        Axx += GG @ diags_array(np.reciprocal(diaglamy).squeeze(axis=1)) @ GG.T
+        axz = -GG.T @ (coeff.a / diaglamy)
+        azz = state.zet / state.z + coeff.a.T @ (coeff.a / diaglamy)
+        AA = np.block([[Axx, axz], [axz.T, azz]])
+
+        bx = delx + GG.T @ (dellamyi / diaglamy)
+        bz = delz - coeff.a.T @ (dellamyi / diaglamy)
+        bb = np.vstack([-bx, -bz])
+
+        dx_dz = solve(AA, bb)
+        dx, dz = dx_dz[0:n], dx_dz[n:]
+
+        dlam = np.dot(GG, dx) / diaglamy
+        dlam -= -dz * (coeff.a / diaglamy)
+        dlam += +dellamyi / diaglamy
 
     # Back substitute the solutions found to reconstruct the full
     # solutions of delta's. This is the solution of a Newton step
     # as specified at the start of Section 5.3.
+
+    # Equation 5.13a.
+    dxsi = -state.xsi
+    dxsi += epsi / (state.x - bounds.alpha)
+    dxsi -= (state.xsi * dx) / (state.x - bounds.alpha)
+
+    # Equation 5.13b.
+    deta = -state.eta
+    deta += epsi / (bounds.beta - state.x)
+    deta += (state.eta * dx) / (bounds.beta - state.x)
+
+    # Equation 5.16.
     dy = -dely / diagy + dlam / diagy
-    dxsi = (
-        -state.xsi
-        + epsi / (state.x - bounds.alpha)
-        - (state.xsi * dx) / (state.x - bounds.alpha)
-    )
-    deta = (
-        -state.eta
-        + epsi / (bounds.beta - state.x)
-        + (state.eta * dx) / (bounds.beta - state.x)
-    )
+
+    # Equation 5.13c, 5.13d, 5.13e.
     dmu = -state.mu + epsi / state.y - (state.mu * dy) / state.y
     dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
     ds = -state.s + epsi / state.lam - (state.s * dlam) / state.lam
 
-    return State(dx, dy, dz, dlam, dxsi, deta, dmu, dzet, ds)
+    return State.from_variables(dx, dy, dz, dlam, dxsi, deta, dmu, dzet, ds)
 
 
 def line_search(
-    # bounds
     bounds: MMABounds,
-    # approximations
-    p0,
-    q0,
-    P,
-    Q,
-    state,
-    d_state,
-    # parameters
-    a0,
-    a,
-    b,
-    c,
-    d,
+    approx: Approximations,
+    state: State,
+    coeff: Coefficients,
+    b: np.ndarray,
+    options: Options,
     epsi,
 ):
     """Line search along Newton descent direction.
@@ -399,71 +367,45 @@ def line_search(
     indicated in Section 5.4.
     """
 
-    xx = np.concatenate(
-        (
-            state.y,
-            state.z,
-            state.lam,
-            state.xsi,
-            state.eta,
-            state.mu,
-            state.zet,
-            state.s,
-        ),
-        axis=0,
-    )
+    # Obtain the Newton direction to search along.
+    d_state = solve_newton_step(state, bounds, approx, coeff, b, epsi)
 
-    dxx = np.concatenate(
-        (
-            d_state.y,
-            d_state.z,
-            d_state.lam,
-            d_state.xsi,
-            d_state.eta,
-            d_state.mu,
-            d_state.zet,
-            d_state.s,
-        ),
-        axis=0,
-    )
+    # A smudge factor used in the step length decision.
+    # This is defined in Section 5.4.
+    factor = 1.01
 
-    # Step length determination
-    stepxx = -1.01 * dxx / xx
-    stmxx = np.max(stepxx)
-    stepalfa = -1.01 * d_state.x / (state.x - bounds.alpha)
-    stmalfa = np.max(stepalfa)
-    stepbeta = 1.01 * d_state.x / (bounds.beta - state.x)
-    stmbeta = np.max(stepbeta)
-    stmalbe = np.maximum(stmalfa, stmbeta)
-    stmalbexx = np.maximum(stmalbe, stmxx)
-    stminv = np.maximum(stmalbexx, 1.0)
-    steg = 1.0 / stminv
+    # For the step length in x all attributes except x are used. This finds
+    # the starting index of the other attributes and computes the maximum
+    # step size using the remainder of the array only.
+    start, _ = state.offsets["y"]
+    step_max_x = -factor * np.min(d_state.state[start:] / state.state[start:])
+
+    step_max_alpha = np.max(-factor * d_state.x / (state.x - bounds.alpha))
+    step_max_beta = np.max(factor * d_state.x / (bounds.beta - state.x))
+    step_max_alpha_beta = np.maximum(step_max_alpha, step_max_beta)
+    step_max_x_alpha_beta = np.maximum(step_max_alpha_beta, step_max_x)
+    step_max = 1.0 / np.maximum(step_max_x_alpha_beta, 1.0)
 
     # Keep current state without addition of any Newton step.
     old = state.copy()
 
     # Initial residual to be improved up on.
-    residunorm, _ = state.relaxed_residual(
-        a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
-    )
+    residunorm, _ = state.relaxed_residual(coeff, b, approx, bounds, epsi)
 
     # Find largest step sizes that decreases the residual.
     # Since the direction is a descent direction, a reduction will be found.
     # It can be found for fairly small step sizes though.
     resinew = np.inf
-    iteration_count = 50
 
-    for iteration in range(iteration_count):
-        if resinew <= residunorm:
-            break
-
+    for iteration in range(options.line_search_iteration_count):
         # Step along the search direction.
-        scaling = steg / (2**iteration)
+        scaling = step_max / (2**iteration)
         state = old + d_state.scale(scaling)
 
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
-        resinew, residumax = state.relaxed_residual(
-            a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
-        )
+        resinew, _ = state.relaxed_residual(coeff, b, approx, bounds, epsi)
+
+        if resinew <= residunorm:
+            break
 
     return state
