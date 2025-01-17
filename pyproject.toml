@@ -21,10 +21,13 @@ dev = [
 
 [tool.ruff]
 line-length = 79
-lint.extend-select = ["I", "W"]
+lint.extend-select = ["D", "I", "W"]
 
 [tool.ruff.format]
 docstring-code-format = true
 
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 79
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"

@@ -1,3 +1,5 @@
+"""Problem bounds and MMA bounds approximation."""
+
 import numpy as np
 from scipy.sparse import issparse
 
@@ -9,6 +11,7 @@ class Bounds:
     """Container for the variable bounds."""
 
     def __init__(self, lb=-np.inf, ub=np.inf):
+        """Bundle bounds from lower and upper bounds."""
         if issparse(lb) or issparse(ub):
             message = "Lower and upper bounds must be dense arrays."
             raise ValueError(message)
@@ -17,17 +20,23 @@ class Bounds:
         self.ub = np.atleast_1d(ub)
 
     def lower(self):
+        """Lower bounds."""
         return self.lb
 
     def upper(self):
+        """Upper bounds."""
         return self.ub
 
     def delta(self):
+        """Subtract upper bounds from lower bounds."""
         return self.ub - self.lb
 
 
 class MMABounds:
+    """MMA lower and upper bounds approximations "alpha" en "beta"."""
+
     def __init__(self, bounds: Bounds, options: Options):
+        """Approximate the problem bounds."""
         self.bounds = bounds
         self.options = options
 
@@ -36,11 +45,10 @@ class MMABounds:
         self.upp = bounds.upper()
 
     def update_asymptotes(self, target_function: TargetFunction):
-        """Calculation of the asymptotes low and upp.
+        """Calculate lower and upper asymptotes "low" and "upp".
 
         This represents equations 3.11 to 3.14.
         """
-
         # The difference between upper and lower bounds.
         delta = self.bounds.delta()
 
@@ -84,11 +92,10 @@ class MMABounds:
         )
 
     def calculate_alpha_beta(self, x: np.ndarray):
-        """Calculation of the bounds alpha and beta.
+        """Calculate the bound approximations alpha and beta.
 
         Equations 3.6 and 3.7.
         """
-
         # Restrict lower bound with move limit.
         lower_bound = np.maximum(
             self.low + self.options.alpha_factor * (x - self.low),

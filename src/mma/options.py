@@ -1,3 +1,5 @@
+"""Option containers for the MMA algoritm."""
+
 from dataclasses import dataclass
 
 import numpy as np
@@ -5,10 +7,10 @@ import numpy as np
 
 @dataclass
 class Options:
-    """
-    MMA Algorithm options
+    """MMA Algorithm options.
 
-    Attributes:
+    Attributes
+    ----------
         iteration_count: Maximum number of outer iterations.
         move_limit: Move limit for the design variables.
         asyinit: Factor to calculate the initial distance of the asymptotes.
@@ -22,6 +24,7 @@ class Options:
         epsimin: A small positive number for subsolver stability.
         subsolver_iteration_count: Maximum iterations of subsolver.
         line_search_iteration_count: Maximum iterations for line search.
+
     """
 
     iteration_count: int
@@ -41,6 +44,8 @@ class Options:
 
 @dataclass
 class Coefficients:
+    """MMA configuration for the coefficients a, c, and d."""
+
     # a0 (float): Constant in the term a_0 * z.
     a0: float
     # a (np.ndarray): Coefficients for the term a_i * z.
@@ -52,8 +57,7 @@ class Coefficients:
 
     @classmethod
     def from_defaults(cls, m: int):
-        """
-        A collection of coeffcients within the problem formulation.
+        """Initialise commonly used default coefficients.
 
         This implementations assumes `a_i = 0` and `d_i = 1`
         for all i to match the basic problem formulation as

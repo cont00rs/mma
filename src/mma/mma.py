@@ -1,4 +1,6 @@
-﻿import numpy as np
+﻿"""The core MMA implementation."""
+
+import numpy as np
 
 from mma.approximations import Approximations
 from mma.bounds import Bounds, MMABounds
@@ -68,8 +70,7 @@ def mmasub(
     coeff: Coefficients,
     options: Options,
 ) -> State:
-    """
-    Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
+    """Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
     Minimize:
         f_0(x) + a_0 * z + sum(c_i * y_i + 0.5 * d_i * (y_i)^2)
@@ -79,15 +80,17 @@ def mmasub(
         xmin_j <= x_j <= xmax_j,        j = 1,...,n
         z >= 0, y_i >= 0,               i = 1,...,m
 
-    Args:
-        m (int): Number of constraints.
-        n (int): Number of variables.
-        bounds (Bounds)
-        coeff (Coefficients)
-        target_function (TargetFunction)
+    Parameters
+    ----------
+        target_function: TargetFunction
+        bounds: Bounds
+        coeff: Coefficients
+        options: Options
 
-    Returns:
+    Returns
+    -------
         state (State)
+
     """
     # Calculation of the asymptotes low and upp.
     bounds.update_asymptotes(target_function)
@@ -114,8 +117,7 @@ def kktcheck(
     target_function: TargetFunction,
     coeff: Coefficients,
 ) -> float:
-    """
-    Evaluate the residuals for the Karush-Kuhn-Tucker (KKT) conditions.
+    """Evaluate the residuals for the Karush-Kuhn-Tucker (KKT) conditions.
 
     The KKT conditions are necessary for optimality in constrained
     optimization problems. This function computes the residuals for
@@ -128,11 +130,12 @@ def kktcheck(
         target_function (TargetFunction)
         coeff (Coefficients)
 
-    Returns:
+    Returns
+    -------
         float:
             residunorm (float): Norm of the residual vector.
-    """
 
+    """
     # Compute residuals for the KKT conditions
     df0dx = target_function.df0dx
     dfdx = target_function.dfdx
