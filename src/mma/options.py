@@ -19,6 +19,8 @@ class Options:
         raa0: Parameter representing the function approximation's accuracy.
         alpha_factor: Factor to calculate the bounds alpha.
         beta_factor: Factor to calculate the bounds beta.
+        epsimin: A small positive number to ensure numerical stability of the subsolver.
+        subsolver_iteration_count: Maximum number of iterations of the subsolver.
     """
 
     iteration_count: int
@@ -31,6 +33,8 @@ class Options:
     raa0: float = 0.00001
     beta_factor: float = 0.1
     alpha_factor: float = 0.1
+    epsimin: float = 1e-7
+    subsolver_iteration_count: int = 200
 
 
 @dataclass

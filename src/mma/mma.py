@@ -126,7 +126,7 @@ def mmasub(
     approx = Approximations(target_function, bounds, options.raa0)
 
     # Solving the subproblem using the primal-dual Newton method
-    state = subsolv(target_function, bounds, approx, coeff)
+    state = subsolv(target_function, bounds, approx, coeff, options)
 
     # Store design variables of last two iterations.
     target_function.store()

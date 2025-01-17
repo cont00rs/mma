@@ -4,7 +4,7 @@ from scipy.sparse import diags
 
 from mma.approximations import Approximations
 from mma.bounds import MMABounds
-from mma.options import Coefficients
+from mma.options import Coefficients, Options
 from mma.target_function import TargetFunction
 
 
@@ -152,6 +152,7 @@ def subsolv(
     bounds: MMABounds,
     approx: Approximations,
     coeff: Coefficients,
+    options: Options,
 ) -> State:
     """
     Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
@@ -178,43 +179,23 @@ def subsolv(
 
     state = State.from_alpha_beta(target_function.m, bounds, coeff.c)
 
-    # A small positive number to ensure numerical stability.
-    epsimin = 1e-7
-    iteration_count = 200
-
     # Negative residual.
     b = approx.residual(bounds, target_function)
 
     # Start while loop for numerical stability
-    while epsi > epsimin:
+    while epsi > options.epsimin:
         # Start inner while loop for optimization
-        for _ in range(iteration_count):
+        for _ in range(options.iteration_count):
             # Compute relaxed optimality conditions, Section 5.2.
-            _, residumax = state.relaxed_residual(
+            _, residual = state.relaxed_residual(
                 coeff, b, approx, bounds, epsi
             )
 
-            if residumax <= 0.9 * epsi:
+            if residual <= 0.9 * epsi:
                 break
 
-            d_state = solve_newton_step(
-                state,
-                bounds,
-                approx,
-                coeff,
-                b,
-                epsi,
-            )
-
-            state = line_search(
-                bounds,
-                approx,
-                state,
-                d_state,
-                coeff,
-                b,
-                epsi,
-            )
+            d_state = solve_newton_step(state, bounds, approx, coeff, b, epsi)
+            state = line_search(bounds, approx, state, d_state, coeff, b, epsi)
 
         epsi = 0.1 * epsi
 
