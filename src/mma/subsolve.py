@@ -166,7 +166,6 @@ def subsolv(
         beta (np.ndarray): Upper asymptotes for the variables.
         a0 (float): Constant term in the objective function.
         a (np.ndarray): Coefficients for the constraints involving z.
-        b (np.ndarray): Right-hand side constants in the constraints.
         c (np.ndarray): Coefficients for the terms involving y in the constraints.
         d (np.ndarray): Coefficients for the quadratic terms involving y in the objective function.
 

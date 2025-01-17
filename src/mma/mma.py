@@ -166,11 +166,7 @@ class SubProblem:
         a: np.ndarray,
         c: np.ndarray,
         d: np.ndarray,
-    ) -> Tuple[
-        State,
-        np.ndarray,
-        np.ndarray,
-    ]:
+    ) -> State:
         """
         Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
@@ -221,17 +217,12 @@ class SubProblem:
         # Calculations approximating functions: P, Q.
         approx = Approximations(xval, df0dx, dfdx, bounds, self.options.raa0)
 
-        # Negative residual between approximating functions and objective
-        # as described in beginning of Section 5.
-        # TODO: Move this into the State class. It can be computed on the fly?
-        b = (
-            approx.P @ (1 / (bounds.upp - xval))
-            + approx.Q @ (1 / (xval - bounds.low))
-            - fval
-        )
+        # Negative residual.
+        b = approx.residual(bounds, xval, fval)
 
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
+        # b (np.ndarray): Right-hand side constants in the constraints.
         state = subsolv(m, n, bounds, approx, a0, a, b, c, d)
 
         # Store design variables of last two iterations.
