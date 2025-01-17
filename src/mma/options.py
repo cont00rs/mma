@@ -19,9 +19,9 @@ class Options:
         raa0: Parameter representing the function approximation's accuracy.
         alpha_factor: Factor to calculate the bounds alpha.
         beta_factor: Factor to calculate the bounds beta.
-        epsimin: A small positive number to ensure numerical stability of the subsolver.
-        subsolver_iteration_count: Maximum number of iterations of the subsolver.
-        line_search_iteration_count: Maximum number of iterations for the line search.
+        epsimin: A small positive number for subsolver stability.
+        subsolver_iteration_count: Maximum iterations of subsolver.
+        line_search_iteration_count: Maximum iterations for line search.
     """
 
     iteration_count: int

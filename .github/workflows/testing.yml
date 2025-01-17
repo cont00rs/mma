@@ -30,5 +30,7 @@ jobs:
       run: uv run pytest test
 
     - name: Run linters
-      # TODO: Remove ignored rule when docstrings are reformatted.
-      run: uv run ruff check --ignore W505
+      run: uv run ruff check .
+
+    - name: Run formatter
+      run: uv run ruff format --diff

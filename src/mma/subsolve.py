@@ -16,9 +16,12 @@ class State:
         - ymma (np.ndarray): Optimal values of the variables y_i.
         - zmma (float): Optimal value of the variable z.
         - lam (np.ndarray): Lagrange multipliers for the constraints.
-        - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
-        - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
-        - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
+        - xsi (np.ndarray):
+            Lagrange multipliers for the lower bounds on design variables.
+        - eta (np.ndarray):
+            Lagrange multipliers for the upper bounds on design variables.
+        - mu (np.ndarray):
+            Lagrange multipliers for the slack variables of the constraints.
         - zet (float): Lagrange multiplier for the regularization term z.
         - s (np.ndarray): Slack variables for the general constraints.
     """

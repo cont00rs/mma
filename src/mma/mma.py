@@ -1,30 +1,4 @@
-﻿"""
-GCMMA-MMA-Python
-
-This file is part of GCMMA-MMA-Python. GCMMA-MMA-Python is licensed under the terms of GNU
-General Public License as published by the Free Software Foundation. For more information and
-the LICENSE file, see <https://github.com/arjendeetman/GCMMA-MMA-Python>.
-
-The orginal work is written by Krister Svanberg in MATLAB. This is the Python implementation
-of the code written by Arjen Deetman.
-
-Functionality:
-- `mmasub`: Solves the MMA subproblem.
-- `subsolv`: Performs a primal-dual Newton method to solve subproblems.
-- `kktcheck`: Checks the Karush-Kuhn-Tucker (KKT) conditions for the solution.
-
-Dependencies:
-- numpy: Numerical operations and array handling.
-- scipy: Sparse matrix operations and linear algebra.
-
-To use this module, import the desired functions and provide the necessary arguments
-according to the specific problem being solved.
-"""
-
-# Loading modules
-from __future__ import division
-
-import numpy as np
+﻿import numpy as np
 
 from mma.approximations import Approximations
 from mma.bounds import Bounds, MMABounds
@@ -141,10 +115,12 @@ def kktcheck(
     coeff: Coefficients,
 ) -> float:
     """
-    Evaluate the residuals for the Karush-Kuhn-Tucker (KKT) conditions of a nonlinear programming problem.
+    Evaluate the residuals for the Karush-Kuhn-Tucker (KKT) conditions.
 
-    The KKT conditions are necessary for optimality in constrained optimization problems. This function computes
-    the residuals for these conditions based on the current values of the variables, constraints, and Lagrange multipliers.
+    The KKT conditions are necessary for optimality in constrained
+    optimization problems. This function computes the residuals for
+    these conditions based on the current values of the variables,
+    constraints, and Lagrange multipliers.
 
     Args:
         state (State): Current state of the optimization problem.
@@ -154,7 +130,7 @@ def kktcheck(
 
     Returns:
         float:
-            - residunorm (float): Norm of the residual vector.
+            residunorm (float): Norm of the residual vector.
     """
 
     # Compute residuals for the KKT conditions
