@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.linalg import solve
-from scipy.sparse import diags
+from scipy.sparse import diags_array
 
 from mma.approximations import Approximations
 from mma.bounds import MMABounds
@@ -231,51 +231,54 @@ def subsolv(
     return state
 
 
-# FIXME: Match this to interface of `line_search`.
 def solve_newton_step(
-    state,
+    state: State,
     bounds: MMABounds,
     approx: Approximations,
     coeff: Coefficients,
-    b,
-    epsi,
+    b: np.ndarray,
+    epsi: float,
 ):
-    ux1 = bounds.upp - state.x
-    xl1 = state.x - bounds.low
-    ux2 = ux1 * ux1
-    xl2 = xl1 * xl1
-    ux3 = ux1 * ux2
-    xl3 = xl1 * xl2
-    uxinv1 = 1 / ux1
-    xlinv1 = 1 / xl1
-    uxinv2 = 1 / ux2
-    xlinv2 = 1 / xl2
-    plam = approx.p0 + np.dot(approx.P.T, state.lam)
-    qlam = approx.q0 + np.dot(approx.Q.T, state.lam)
-    gvec = np.dot(approx.P, uxinv1) + np.dot(approx.Q, xlinv1)
-    GG = (diags(uxinv2.flatten(), 0).dot(approx.P.T)).T - (
-        diags(xlinv2.flatten(), 0).dot(approx.Q.T)
-    ).T
-    dpsidx = plam / ux2 - qlam / xl2
-    delx = (
-        dpsidx
-        - epsi / (state.x - bounds.alpha)
-        + epsi / (bounds.beta - state.x)
-    )
+    ux = bounds.upp - state.x
+    xl = state.x - bounds.low
+
+    # Equation 5.5
+    plam = approx.p0 + approx.P.T @ state.lam
+    qlam = approx.q0 + approx.Q.T @ state.lam
+
+    # Equation 5.2.
+    gvec = approx.P @ np.reciprocal(ux) + approx.Q @ np.reciprocal(xl)
+
+    # Equation 5.12.
+    GG = approx.P @ diags_array(np.reciprocal(ux**2).squeeze(axis=1))
+    GG -= approx.Q @ diags_array(np.reciprocal(xl**2).squeeze(axis=1))
+
+    # Equation 5.8 (dpsi/dxj) and Equation 5.15d.
+    delx = plam / ux**2
+    delx -= qlam / xl**2
+    delx -= epsi / (state.x - bounds.alpha)
+    delx += epsi / (bounds.beta - state.x)
+
+    # Equation 5.15e.
     dely = coeff.c + coeff.d * state.y - state.lam - epsi / state.y
-    delz = coeff.a0 - np.dot(coeff.a.T, state.lam) - epsi / state.z
+
+    # Equation 5.15f.
+    delz = coeff.a0 - coeff.a.T @ state.lam - epsi / state.z
+
+    # Equation 5.15g.
     dellam = gvec - coeff.a * state.z - state.y - b + epsi / state.lam
-    diagx = plam / ux3 + qlam / xl3
-    diagx = (
-        2 * diagx
-        + state.xsi / (state.x - bounds.alpha)
-        + state.eta / (bounds.beta - state.x)
-    )
-    diagxinv = 1 / diagx
+
+    # Equation 5.15a.
+    diagx = 2 * plam / ux**3
+    diagx += 2 * qlam / xl**3
+    diagx += state.xsi / (state.x - bounds.alpha)
+    diagx += state.eta / (bounds.beta - state.x)
+
+    # Equation 5.15b.
     diagy = coeff.d + state.mu / state.y
-    diagyinv = 1 / diagy
-    diaglam = state.s / state.lam
-    diaglamyi = diaglam + diagyinv
+
+    # Equation 5.15c.
+    diaglamy = state.s / state.lam + np.reciprocal(diagy)
 
     # Solve system of equations
     # The size of design variables and constraint functions play
@@ -289,61 +292,55 @@ def solve_newton_step(
         # Delta x is eliminated (Equation 5.19) and the system
         # of equations in delta lambda, delta z is constructed.
         # This represents Equation 5.20.
-        blam = dellam + dely / diagy - np.dot(GG, (delx / diagx))
-        bb = np.concatenate((blam, delz), axis=0)
-        Alam = np.asarray(
-            diags(diaglamyi.flatten(), 0)
-            + (diags(diagxinv.flatten(), 0).dot(GG.T).T).dot(GG.T)
-        )
-        AAr1 = np.concatenate((Alam, coeff.a), axis=1)
-        AAr2 = np.concatenate((coeff.a, -state.zet / state.z), axis=0).T
-        AA = np.concatenate((AAr1, AAr2), axis=0)
-        solut = solve(AA, bb)
-        dlam = solut[0:m]
+        Alam = diags_array(diaglamy.squeeze(axis=1))
+        Alam += GG @ diags_array(np.reciprocal(diagx).squeeze(axis=1)) @ GG.T
+        AA = np.block([[Alam, coeff.a], [coeff.a.T, -state.zet / state.z]])
 
-        dz = solut[m : m + 1]
-        dx = -delx / diagx - np.dot(GG.T, dlam) / diagx
+        bb = np.vstack([dellam + dely / diagy - GG @ (delx / diagx), delz])
+        dlam_dz = solve(AA, bb)
+        dlam, dz = dlam_dz[0:m], dlam_dz[m:]
+        dx = -(delx + GG.T @ dlam) / diagx
     else:
         # Delta lambda is eliminated (Equation 5.21) and the system
         # of equations in delta x, delta z is constructed. This
         # represents Equation 5.22.
-        diaglamyiinv = 1 / diaglamyi
         dellamyi = dellam + dely / diagy
-        Axx = np.asarray(
-            diags(diagx.flatten(), 0)
-            + (diags(diaglamyiinv.flatten(), 0).dot(GG).T).dot(GG)
-        )
-        azz = state.zet / state.z + np.dot(coeff.a.T, (coeff.a / diaglamyi))
-        axz = np.dot(-GG.T, (coeff.a / diaglamyi))
-        bx = delx + np.dot(GG.T, (dellamyi / diaglamyi))
-        bz = delz - np.dot(coeff.a.T, (dellamyi / diaglamyi))
-        AAr1 = np.concatenate((Axx, axz), axis=1)
-        AAr2 = np.concatenate((axz.T, azz), axis=1)
-        AA = np.concatenate((AAr1, AAr2), axis=0)
-        bb = np.concatenate((-bx, -bz), axis=0)
-        solut = solve(AA, bb)
-        dx = solut[0:n]
-        dz = solut[n : n + 1]
-        dlam = (
-            np.dot(GG, dx) / diaglamyi
-            - dz * (coeff.a / diaglamyi)
-            + dellamyi / diaglamyi
-        )
+
+        Axx = diags_array(diagx.squeeze(axis=1))
+        Axx += GG @ diags_array(np.reciprocal(diaglamy).squeeze(axis=1)) @ GG.T
+        axz = -GG.T @ (coeff.a / diaglamy)
+        azz = state.zet / state.z + coeff.a.T @ (coeff.a / diaglamy)
+        AA = np.block([[Axx, axz], [axz.T, azz]])
+
+        bx = delx + GG.T @ (dellamyi / diaglamy)
+        bz = delz - coeff.a.T @ (dellamyi / diaglamy)
+        bb = np.vstack([-bx, -bz])
+
+        dx_dz = solve(AA, bb)
+        dx, dz = dx_dz[0:n], dx_dz[n:]
+
+        dlam = np.dot(GG, dx) / diaglamy
+        dlam -= -dz * (coeff.a / diaglamy)
+        dlam += +dellamyi / diaglamy
 
     # Back substitute the solutions found to reconstruct the full
     # solutions of delta's. This is the solution of a Newton step
     # as specified at the start of Section 5.3.
+
+    # Equation 5.13a.
+    dxsi = -state.xsi
+    dxsi += epsi / (state.x - bounds.alpha)
+    dxsi -= (state.xsi * dx) / (state.x - bounds.alpha)
+
+    # Equation 5.13b.
+    deta = -state.eta
+    deta += epsi / (bounds.beta - state.x)
+    deta += (state.eta * dx) / (bounds.beta - state.x)
+
+    # Equation 5.16.
     dy = -dely / diagy + dlam / diagy
-    dxsi = (
-        -state.xsi
-        + epsi / (state.x - bounds.alpha)
-        - (state.xsi * dx) / (state.x - bounds.alpha)
-    )
-    deta = (
-        -state.eta
-        + epsi / (bounds.beta - state.x)
-        + (state.eta * dx) / (bounds.beta - state.x)
-    )
+
+    # Equation 5.13c, 5.13d, 5.13e.
     dmu = -state.mu + epsi / state.y - (state.mu * dy) / state.y
     dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
     ds = -state.s + epsi / state.lam - (state.s * dlam) / state.lam
