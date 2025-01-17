@@ -35,7 +35,7 @@ class State:
         self.s = s
 
     @classmethod
-    def from_alpha_beta(cls, n, m, bounds, c):
+    def from_alpha_beta(cls, m: int, bounds: MMABounds, c: np.ndarray):
         x = (bounds.alpha + bounds.beta) / 2
         y = np.ones((m, 1))
         z = np.array([[1.0]])
@@ -148,11 +148,9 @@ class State:
 
 
 def subsolv(
-    m: int,
-    n: int,
+    target_function: TargetFunction,
     bounds: MMABounds,
     approx: Approximations,
-    target_function: TargetFunction,
     coeff: Coefficients,
 ) -> State:
     """
@@ -166,11 +164,9 @@ def subsolv(
         alfa_j <= xj <= beta_j, yi >= 0, z >= 0.
 
     Args:
-        m (int): Number of constraints.
-        n (int): Number of variables.
+        target_function (TargetFunction)
         bounds (Bounds)
         approx (Approximations)
-        target_function (TargetFunction)
         coeff (Coefficients)
 
     Returns:
@@ -180,7 +176,7 @@ def subsolv(
     # Initial problem state as given in Section 5.5 beginning.
     epsi = 1
 
-    state = State.from_alpha_beta(n, m, bounds, coeff.c)
+    state = State.from_alpha_beta(target_function.m, bounds, coeff.c)
 
     # A small positive number to ensure numerical stability.
     epsimin = 1e-7

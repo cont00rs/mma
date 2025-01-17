@@ -45,17 +45,12 @@ def mma(
     Reference material is available from:
     - https://people.kth.se/~krille/mmagcmma.pdf.
     """
-    # Count constriants.
-    _, _, fval, _ = func(x)
-    m = 1 if isinstance(fval, float) else len(fval)
-    n = len(x)
-
     # Initialise at first iterate.
     target_function = TargetFunction(func, x.copy())
+    coeff = coeff if coeff else Coefficients.from_defaults(target_function.m)
 
     # Lower, upper bounds
     mma_bounds = MMABounds(bounds, options)
-    coeff = coeff if coeff else Coefficients.from_defaults(m)
 
     kkttol = 0
 
@@ -66,31 +61,19 @@ def mma(
 
     # The iterations start
     kktnorm = kkttol + 10
-    subproblem = SubProblem(options)
 
     for _ in range(options.iteration_count):
         if kktnorm <= kkttol:
             break
 
         # The MMA subproblem is solved at the current point (`xval`).
-        state = subproblem.mmasub(
-            m,
-            n,
-            mma_bounds,
-            coeff,
-            target_function,
-        )
+        state = mmasub(target_function, mma_bounds, coeff, options)
 
         # Re-calculate function values, gradients at next iterate.
         target_function.evaluate(state.x)
 
         # The residual vector of the KKT conditions is calculated
-        kktnorm = kktcheck(
-            state,
-            mma_bounds.bounds,
-            target_function,
-            coeff,
-        )
+        kktnorm = kktcheck(state, bounds, target_function, coeff)
 
         outvector1 = np.concatenate((target_function.f0, target_function.f))
         outvector2 = target_function.x.flatten()
@@ -105,61 +88,50 @@ def mma(
     return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
 
 
-class SubProblem:
-    def __init__(self, options: Options):
-        self.options: Options = options
+def mmasub(
+    target_function: TargetFunction,
+    bounds: MMABounds,
+    coeff: Coefficients,
+    options: Options,
+) -> State:
+    """
+    Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
-        # xold1 (np.ndarray): Design variables from one iteration ago.
-        self.xold1 = None
-        # xold2 (np.ndarray): Design variables from two iterations ago.
-        self.xold2 = None
+    Minimize:
+        f_0(x) + a_0 * z + sum(c_i * y_i + 0.5 * d_i * (y_i)^2)
 
-    def mmasub(
-        self,
-        m: int,
-        n: int,
-        bounds: MMABounds,
-        coeff: Coefficients,
-        target_function: TargetFunction,
-    ) -> State:
-        """
-        Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
+    Subject to:
+        f_i(x) - a_i * z - y_i <= 0,    i = 1,...,m
+        xmin_j <= x_j <= xmax_j,        j = 1,...,n
+        z >= 0, y_i >= 0,               i = 1,...,m
 
-        Minimize:
-            f_0(x) + a_0 * z + sum(c_i * y_i + 0.5 * d_i * (y_i)^2)
+    Args:
+        m (int): Number of constraints.
+        n (int): Number of variables.
+        bounds (Bounds)
+        coeff (Coefficients)
+        target_function (TargetFunction)
 
-        Subject to:
-            f_i(x) - a_i * z - y_i <= 0,    i = 1,...,m
-            xmin_j <= x_j <= xmax_j,        j = 1,...,n
-            z >= 0, y_i >= 0,               i = 1,...,m
+    Returns:
+        state (State)
+    """
+    # Calculation of the asymptotes low and upp.
+    bounds.update_asymptotes(target_function)
 
-        Args:
-            m (int): Number of constraints.
-            n (int): Number of variables.
-            bounds (Bounds)
-            coeff (Coefficients)
-            target_function (TargetFunction)
+    # Calculation of the bounds alfa and beta.
+    bounds.calculate_alpha_beta(target_function.x)
 
-        Returns:
-            state (State)
-        """
-        # Calculation of the asymptotes low and upp.
-        bounds.update_asymptotes(target_function.x, self.xold1, self.xold2)
+    # Calculations approximating functions: P, Q.
+    # TODO: Consider caching approximations and only updating its contents?
+    approx = Approximations(target_function, bounds, options.raa0)
 
-        # Calculation of the bounds alfa and beta.
-        bounds.calculate_alpha_beta(target_function.x)
+    # Solving the subproblem using the primal-dual Newton method
+    state = subsolv(target_function, bounds, approx, coeff)
 
-        # Calculations approximating functions: P, Q.
-        approx = Approximations(target_function, bounds, self.options.raa0)
+    # Store design variables of last two iterations.
+    target_function.store()
 
-        # Solving the subproblem using the primal-dual Newton method
-        state = subsolv(m, n, bounds, approx, target_function, coeff)
-
-        # Store design variables of last two iterations.
-        self.xold2 = None if self.xold1 is None else self.xold1.copy()
-        self.xold1 = target_function.x.copy()
-
-        return state
+    return state
 
 
 def kktcheck(

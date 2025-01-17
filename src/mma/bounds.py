@@ -2,6 +2,7 @@ import numpy as np
 from scipy.sparse import issparse
 
 from mma.options import Options
+from mma.target_function import TargetFunction
 
 
 class Bounds:
@@ -34,7 +35,7 @@ class MMABounds:
         self.low = bounds.lower()
         self.upp = bounds.upper()
 
-    def update_asymptotes(self, xval, xold1, xold2):
+    def update_asymptotes(self, target_function: TargetFunction):
         """Calculation of the asymptotes low and upp.
 
         This represents equations 3.11 to 3.14.
@@ -43,36 +44,42 @@ class MMABounds:
         # The difference between upper and lower bounds.
         delta = self.bounds.delta()
 
-        if xold1 is None or xold2 is None:
+        if target_function.xold1 is None or target_function.xold2 is None:
             # Equation 3.11.
-            self.low = xval - self.options.asyinit * delta
-            self.upp = xval + self.options.asyinit * delta
+            self.low = target_function.x - self.options.asyinit * delta
+            self.upp = target_function.x + self.options.asyinit * delta
             return
 
-        # Extract sign of variable change from previous iterates.
-        signs = (xval - xold1) * (xold1 - xold2)
+        # Extract sign of change between iterates.
+        signs = (target_function.x - target_function.xold1) * (
+            target_function.xold1 - target_function.xold2
+        )
 
         # Assign increase/decrease factoring depending on signs. Equation 3.13.
-        factor = np.ones_like(xval, dtype=float)
+        factor = np.ones_like(target_function.x, dtype=float)
         factor[signs > 0] = self.options.asyincr
         factor[signs < 0] = self.options.asydecr
 
         # Equation 3.12.
-        self.low = xval - factor * (xold1 - self.low)
-        self.upp = xval + factor * (self.upp - xold1)
+        self.low = target_function.x - factor * (
+            target_function.xold1 - self.low
+        )
+        self.upp = target_function.x + factor * (
+            self.upp - target_function.xold1
+        )
 
         # Limit asymptote change to maximum increase/decrease. Equation 3.14.
         np.clip(
             self.low,
-            a_min=xval - self.options.asymax * delta,
-            a_max=xval - self.options.asymin * delta,
+            a_min=target_function.x - self.options.asymax * delta,
+            a_max=target_function.x - self.options.asymin * delta,
             out=self.low,
         )
 
         np.clip(
             self.upp,
-            a_min=xval + self.options.asymin * delta,
-            a_max=xval + self.options.asymax * delta,
+            a_min=target_function.x + self.options.asymin * delta,
+            a_max=target_function.x + self.options.asymax * delta,
             out=self.upp,
         )
 
