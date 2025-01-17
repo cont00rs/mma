@@ -24,14 +24,13 @@ according to the specific problem being solved.
 # Loading modules
 from __future__ import division
 
-from typing import Tuple
-
 import numpy as np
 
 from mma.approximations import Approximations
 from mma.bounds import Bounds, MMABounds
 from mma.options import Coefficients, Options
 from mma.subsolve import State, subsolv
+from mma.target_function import TargetFunction
 
 
 def mma(
@@ -68,13 +67,14 @@ def mma(
     # The iterations start
     kktnorm = kkttol + 10
 
+    # Initialise at first iterate.
+    target_function = TargetFunction(func, xval)
+
     subproblem = SubProblem(options)
 
     for _ in range(options.iteration_count):
         if kktnorm <= kkttol:
             break
-
-        f0val, df0dx, fval, dfdx = func(xval)
 
         # The MMA subproblem is solved at the point xval:
         state = subproblem.mmasub(
@@ -83,29 +83,24 @@ def mma(
             xval,
             mma_bounds,
             coeff,
-            df0dx,
-            fval,
-            dfdx,
+            target_function,
         )
 
-        # Some vectors are updated:
-        xval = state.x.copy()
+        xval = state.x
 
-        # Re-calculate function values, gradients
-        f0val, df0dx, fval, dfdx = func(xval)
+        # Re-calculate function values, gradients at next iterate.
+        target_function.evaluate(xval)
 
         # The residual vector of the KKT conditions is calculated
         kktnorm = kktcheck(
             state,
             mma_bounds.bounds,
-            df0dx,
-            fval,
-            dfdx,
+            target_function,
             coeff,
         )
 
-        outvector1 = np.concatenate((f0val, fval))
-        outvector2 = xval.flatten()
+        outvector1 = np.concatenate((target_function.f0, target_function.f))
+        outvector2 = state.x.flatten()
         outvector1s += [outvector1.flatten()]
         outvector2s += [outvector2]
         kktnorms += [kktnorm]
@@ -133,9 +128,7 @@ class SubProblem:
         xval: np.ndarray,
         bounds: MMABounds,
         coeff: Coefficients,
-        df0dx: np.ndarray,
-        fval: np.ndarray,
-        dfdx: np.ndarray,
+        target_function: TargetFunction,
     ) -> State:
         """
         Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
@@ -152,13 +145,9 @@ class SubProblem:
             m (int): Number of constraints.
             n (int): Number of variables.
             xval (np.ndarray): Current values of the design variables.
-            bounds (Bounds): Lower (xmin_j) and upper (xmax_j) bounds of the design variables.
-            f0val (float): Objective function value at xval.
-            df0dx (np.ndarray): Gradient of the objective function at xval.
-            fval (np.ndarray): Constraint function values at xval.
-            dfdx (np.ndarray): Gradient of the constraint functions at xval.
-            low (np.ndarray): Lower bounds for the variables from the previous iteration (provided that iter > 1).
-            upp (np.ndarray): Upper bounds for the variables from the previous iteration (provided that iter > 1).
+            bounds (Bounds)
+            coeff (Coefficients)
+            target_function (TargetFunction)
 
         Returns:
             state (State)
@@ -170,10 +159,12 @@ class SubProblem:
         bounds.calculate_alpha_beta(xval)
 
         # Calculations approximating functions: P, Q.
-        approx = Approximations(xval, df0dx, dfdx, bounds, self.options.raa0)
+        approx = Approximations(
+            xval, target_function, bounds, self.options.raa0
+        )
 
         # Negative residual.
-        b = approx.residual(bounds, xval, fval)
+        b = approx.residual(bounds, xval, target_function)
 
         # Solving the subproblem using the primal-dual Newton method
         # FIXME: Move options for Newton method into dataclass.
@@ -190,9 +181,7 @@ class SubProblem:
 def kktcheck(
     state: State,
     bounds: Bounds,
-    df0dx: np.ndarray,
-    fval: np.ndarray,
-    dfdx: np.ndarray,
+    target_function: TargetFunction,
     coeff: Coefficients,
 ) -> float:
     """
@@ -204,9 +193,7 @@ def kktcheck(
     Args:
         state (State): Current state of the optimization problem.
         bounds (Bounds): Lower and upper bounds for the variables.
-        df0dx (np.ndarray): Gradient of the objective function with respect to the variables.
-        fval (np.ndarray): Values of the constraint functions.
-        dfdx (np.ndarray): Jacobian matrix of the constraint functions.
+        target_function (TargetFunction)
         coeff (Coefficients)
 
     Returns:
@@ -215,11 +202,14 @@ def kktcheck(
     """
 
     # Compute residuals for the KKT conditions
+    df0dx = target_function.df0dx
+    dfdx = target_function.dfdx
+
     state = State(
         df0dx + dfdx.T @ state.lam - state.xsi + state.eta,
         coeff.c + coeff.d * state.y - state.mu - state.lam,
         coeff.a0 - state.zet - coeff.a.T @ state.lam,
-        fval - coeff.a * state.z - state.y + state.s,
+        target_function.f - coeff.a * state.z - state.y + state.s,
         state.xsi * (state.x - bounds.lower()),
         state.eta * (bounds.upper() - state.x),
         state.mu * state.y,

@@ -2,12 +2,19 @@ import numpy as np
 from scipy.sparse import diags_array
 
 from mma.bounds import MMABounds
+from mma.target_function import TargetFunction
 
 
 class Approximations:
     """Container for the function approximations."""
 
-    def __init__(self, xval, df0dx, dfdx, bounds: MMABounds, raa0: float):
+    def __init__(
+        self,
+        xval,
+        target_function: TargetFunction,
+        bounds: MMABounds,
+        raa0: float,
+    ):
         """
         p0: Coefficients for the lower bound terms.
         q0: Coefficients for the upper bound terms.
@@ -19,11 +26,11 @@ class Approximations:
         self.raa0 = raa0
 
         self.p0, self.q0 = self.approximating_functions(
-            xval, df0dx, bounds, objective=True
+            xval, target_function.df0dx, bounds, objective=True
         )
 
         self.P, self.Q = self.approximating_functions(
-            xval, dfdx, bounds, objective=False
+            xval, target_function.dfdx, bounds, objective=False
         )
 
     def approximating_functions(
@@ -69,11 +76,13 @@ class Approximations:
         else:
             return p0.T, q0.T
 
-    def residual(self, bounds: MMABounds, xval, fval) -> np.ndarray:
+    def residual(
+        self, bounds: MMABounds, xval, target_function: TargetFunction
+    ) -> np.ndarray:
         """Negative residual between approximating functions and objective.
 
         Described in beginning of Section 5.
         """
         p = self.P @ (1 / (bounds.upp - xval))
         q = self.Q @ (1 / (xval - bounds.low))
-        return p + q - fval
+        return p + q - target_function.f
