@@ -95,9 +95,7 @@ def mma(
         f0val, df0dx, fval, dfdx = func(xval)
 
         # The residual vector of the KKT conditions is calculated
-        residu, kktnorm, residumax = kktcheck(
-            m,
-            n,
+        kktnorm = kktcheck(
             state,
             mma_bounds.bounds,
             df0dx,
@@ -190,8 +188,6 @@ class SubProblem:
 
 
 def kktcheck(
-    m: int,
-    n: int,
     state: State,
     bounds: Bounds,
     df0dx: np.ndarray,
@@ -206,23 +202,16 @@ def kktcheck(
     the residuals for these conditions based on the current values of the variables, constraints, and Lagrange multipliers.
 
     Args:
-        m (int): Number of general constraints.
-        n (int): Number of variables.
         state (State): Current state of the optimization problem.
         bounds (Bounds): Lower and upper bounds for the variables.
         df0dx (np.ndarray): Gradient of the objective function with respect to the variables.
         fval (np.ndarray): Values of the constraint functions.
         dfdx (np.ndarray): Jacobian matrix of the constraint functions.
-        a0 (float): Coefficient for the term involving z in the objective function.
-        a (np.ndarray): Coefficients for the terms involving z in the constraints.
-        c (np.ndarray): Coefficients for the terms involving y in the constraints.
-        d (np.ndarray): Coefficients for the quadratic terms involving y in the objective function.
+        coeff (Coefficients)
 
     Returns:
-        Tuple[np.ndarray, float, float]:
-            - residu (np.ndarray): Residual vector for the KKT conditions.
+        float:
             - residunorm (float): Norm of the residual vector.
-            - residumax (float): Maximum absolute value among the residuals.
     """
 
     # Compute residuals for the KKT conditions
@@ -240,9 +229,5 @@ def kktcheck(
     residu1 = np.concatenate((rex, rey, rez), axis=0)
     residu2 = np.concatenate((relam, rexsi, reeta, remu, rezet, res), axis=0)
     residu = np.concatenate((residu1, residu2), axis=0)
-
-    # Calculate norm and maximum value of the residual vector
     residunorm = np.sqrt(np.dot(residu.T, residu).item())
-    residumax = np.max(np.abs(residu))
-
-    return residu, residunorm, residumax
+    return residunorm
