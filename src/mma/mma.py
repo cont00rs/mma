@@ -194,7 +194,7 @@ def kktcheck(
     fval: np.ndarray,
     dfdx: np.ndarray,
     coeff: Coefficients,
-) -> Tuple[np.ndarray, float, float]:
+) -> float:
     """
     Evaluate the residuals for the Karush-Kuhn-Tucker (KKT) conditions of a nonlinear programming problem.
 
@@ -215,19 +215,17 @@ def kktcheck(
     """
 
     # Compute residuals for the KKT conditions
-    rex = df0dx + np.dot(dfdx.T, state.lam) - state.xsi + state.eta
-    rey = coeff.c + coeff.d * state.y - state.mu - state.lam
-    rez = coeff.a0 - state.zet - np.dot(coeff.a.T, state.lam)
-    relam = fval - coeff.a * state.z - state.y + state.s
-    rexsi = state.xsi * (state.x - bounds.lower())
-    reeta = state.eta * (bounds.upper() - state.x)
-    remu = state.mu * state.y
-    rezet = state.zet * state.z
-    res = state.lam * state.s
+    state = State(
+        df0dx + dfdx.T @ state.lam - state.xsi + state.eta,
+        coeff.c + coeff.d * state.y - state.mu - state.lam,
+        coeff.a0 - state.zet - coeff.a.T @ state.lam,
+        fval - coeff.a * state.z - state.y + state.s,
+        state.xsi * (state.x - bounds.lower()),
+        state.eta * (bounds.upper() - state.x),
+        state.mu * state.y,
+        state.zet * state.z,
+        state.lam * state.s,
+    )
 
-    # Concatenate residuals into a single vector
-    residu1 = np.concatenate((rex, rey, rez), axis=0)
-    residu2 = np.concatenate((relam, rexsi, reeta, remu, rezet, res), axis=0)
-    residu = np.concatenate((residu1, residu2), axis=0)
-    residunorm = np.sqrt(np.dot(residu.T, residu).item())
+    residunorm, _ = state.residual()
     return residunorm

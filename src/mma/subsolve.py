@@ -88,6 +88,26 @@ class State:
         self.s *= value
         return self
 
+    def residual(self) -> tuple[float, float]:
+        residual = np.concatenate(
+            (
+                self.x,
+                self.y,
+                self.z,
+                self.lam,
+                self.xsi,
+                self.eta,
+                self.mu,
+                self.zet,
+                self.s,
+            ),
+            axis=0,
+        )
+
+        norm = np.sqrt(np.dot(residual.T, residual).item())
+        norm_max = np.max(np.abs(residual))
+        return norm, norm_max
+
     def relaxed_residual(
         self,
         coeff: Coefficients,
@@ -95,7 +115,7 @@ class State:
         approx: Approximations,
         bounds: MMABounds,
         epsi,
-    ):
+    ) -> tuple[float, float]:
         """Calculate residuals of the relaxed equations.
 
         The state equations are converted to their "relaxed" form,
@@ -113,7 +133,7 @@ class State:
             - qlam / (self.x - bounds.low) ** 2
         )
 
-        relaxed = State(
+        return State(
             dpsidx - self.xsi + self.eta,
             coeff.c + coeff.d * self.y - self.mu - self.lam,
             coeff.a0 - self.zet - coeff.a.T @ self.lam,
@@ -123,27 +143,7 @@ class State:
             self.mu * self.y - epsi,
             self.zet * self.z - epsi,
             self.lam * self.s - epsi,
-        )
-
-        residual = np.concatenate(
-            (
-                relaxed.x,
-                relaxed.y,
-                relaxed.z,
-                relaxed.lam,
-                relaxed.xsi,
-                relaxed.eta,
-                relaxed.mu,
-                relaxed.zet,
-                relaxed.s,
-            ),
-            axis=0,
-        )
-
-        norm = np.sqrt(np.dot(residual.T, residual).item())
-        norm_max = np.max(np.abs(residual))
-
-        return norm, norm_max
+        ).residual()
 
 
 def subsolv(
