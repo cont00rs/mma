@@ -21,7 +21,7 @@ dev = [
 
 [tool.ruff]
 line-length = 79
-lint.extend-select = ["D", "I", "W"]
+lint.extend-select = ["D", "I", "R", "W"]
 
 [tool.ruff.format]
 docstring-code-format = true
