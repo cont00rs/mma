@@ -27,53 +27,6 @@ class State:
         self.state = state
         self.offsets = offsets
 
-    # TODO: Can these properties be generated?
-
-    @property
-    def x(self):
-        start, end = self.offsets["x"]
-        return self.state[start:end]
-
-    @property
-    def y(self):
-        start, end = self.offsets["y"]
-        return self.state[start:end]
-
-    @property
-    def z(self):
-        start, end = self.offsets["z"]
-        return self.state[start:end]
-
-    @property
-    def lam(self):
-        start, end = self.offsets["lam"]
-        return self.state[start:end]
-
-    @property
-    def xsi(self):
-        start, end = self.offsets["xsi"]
-        return self.state[start:end]
-
-    @property
-    def eta(self):
-        start, end = self.offsets["eta"]
-        return self.state[start:end]
-
-    @property
-    def mu(self):
-        start, end = self.offsets["mu"]
-        return self.state[start:end]
-
-    @property
-    def zet(self):
-        start, end = self.offsets["zet"]
-        return self.state[start:end]
-
-    @property
-    def s(self):
-        start, end = self.offsets["s"]
-        return self.state[start:end]
-
     @classmethod
     def from_alpha_beta(cls, m: int, bounds: MMABounds, c: np.ndarray):
         x = (bounds.alpha + bounds.beta) / 2
@@ -120,6 +73,53 @@ class State:
             offset += len(arg)
 
         return State(np.concatenate(arguments, axis=0), offsets)
+
+    # TODO: Can these properties be generated?
+
+    @property
+    def x(self):
+        start, end = self.offsets["x"]
+        return self.state[start:end]
+
+    @property
+    def y(self):
+        start, end = self.offsets["y"]
+        return self.state[start:end]
+
+    @property
+    def z(self):
+        start, end = self.offsets["z"]
+        return self.state[start:end]
+
+    @property
+    def lam(self):
+        start, end = self.offsets["lam"]
+        return self.state[start:end]
+
+    @property
+    def xsi(self):
+        start, end = self.offsets["xsi"]
+        return self.state[start:end]
+
+    @property
+    def eta(self):
+        start, end = self.offsets["eta"]
+        return self.state[start:end]
+
+    @property
+    def mu(self):
+        start, end = self.offsets["mu"]
+        return self.state[start:end]
+
+    @property
+    def zet(self):
+        start, end = self.offsets["zet"]
+        return self.state[start:end]
+
+    @property
+    def s(self):
+        start, end = self.offsets["s"]
+        return self.state[start:end]
 
     def copy(self):
         return State(self.state.copy(), self.offsets)
@@ -377,20 +377,16 @@ def line_search(
     # This is defined in Section 5.4.
     factor = 1.01
 
-    # Step length determination
-    # FIXME: Replace by slice once State is one single array.
-    attributes = ["y", "z", "lam", "xsi", "eta", "mu", "zet", "s"]
-    step_max_x = -factor * np.min(
-        [
-            np.min(getattr(d_state, attr) / getattr(state, attr))
-            for attr in attributes
-        ]
-    )
+    # For the step length in x all attributes except x are used. This finds
+    # the starting index of the other attributes and computes the maximum
+    # step size using the remainder of the array only.
+    start, _ = state.offsets["y"]
+    step_max_x = -factor * np.min(d_state.state[start:] / state.state[start:])
+
     step_max_alpha = np.max(-factor * d_state.x / (state.x - bounds.alpha))
     step_max_beta = np.max(factor * d_state.x / (bounds.beta - state.x))
     step_max_alpha_beta = np.maximum(step_max_alpha, step_max_beta)
     step_max_x_alpha_beta = np.maximum(step_max_alpha_beta, step_max_x)
-
     step_max = 1.0 / np.maximum(step_max_x_alpha_beta, 1.0)
 
     # Keep current state without addition of any Newton step.
