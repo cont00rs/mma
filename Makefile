@@ -10,6 +10,7 @@ check:
 
 format:
 	uv run ruff check --fix
+	uv run ruff format .
 
 types:
 	uv run mypy src/mma test/

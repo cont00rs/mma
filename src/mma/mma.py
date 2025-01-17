@@ -1,4 +1,4 @@
-﻿"""The core MMA implementation."""
+"""The core MMA implementation."""
 
 from typing import Callable
 
