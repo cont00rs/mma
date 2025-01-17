@@ -2,6 +2,7 @@ import numpy as np
 from scipy.linalg import solve
 from scipy.sparse import diags
 
+from mma.approximations import Approximations
 from mma.bounds import MMABounds
 
 
@@ -83,7 +84,7 @@ class State:
         return self
 
     def relaxed_residual(
-        self, a0, a, b, c, d, p0, q0, P, Q, bounds: MMABounds, epsi
+        self, a0, a, b, c, d, approx: Approximations, bounds: MMABounds, epsi
     ):
         """Calculate residuals of the relaxed equations.
 
@@ -92,9 +93,9 @@ class State:
         full state vector of all equations.
         """
 
-        plam = p0 + P.T @ self.lam
-        qlam = q0 + Q.T @ self.lam
-        gvec = P @ (1 / (bounds.upp - self.x)) + Q @ (
+        plam = approx.p0 + approx.P.T @ self.lam
+        qlam = approx.q0 + approx.Q.T @ self.lam
+        gvec = approx.P @ (1 / (bounds.upp - self.x)) + approx.Q @ (
             1 / (self.x - bounds.low)
         )
         dpsidx = (
@@ -139,10 +140,7 @@ def subsolv(
     m: int,
     n: int,
     bounds: MMABounds,
-    p0: np.ndarray,
-    q0: np.ndarray,
-    P: np.ndarray,
-    Q: np.ndarray,
+    approx: Approximations,
     a0: float,
     a: np.ndarray,
     b: np.ndarray,
@@ -166,10 +164,6 @@ def subsolv(
         upp (np.ndarray): Upper bounds for the variables x_j.
         alfa (np.ndarray): Lower asymptotes for the variables.
         beta (np.ndarray): Upper asymptotes for the variables.
-        p0 (np.ndarray): Coefficients for the lower bound terms.
-        q0 (np.ndarray): Coefficients for the upper bound terms.
-        P (np.ndarray): Matrix of coefficients for the lower bound terms in the constraints.
-        Q (np.ndarray): Matrix of coefficients for the upper bound terms in the constraints.
         a0 (float): Constant term in the objective function.
         a (np.ndarray): Coefficients for the constraints involving z.
         b (np.ndarray): Right-hand side constants in the constraints.
@@ -194,8 +188,8 @@ def subsolv(
         # Start inner while loop for optimization
         for _ in range(iteration_count):
             # Compute relaxed optimality conditions, Section 5.2.
-            residunorm, residumax = state.relaxed_residual(
-                a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
+            _, residumax = state.relaxed_residual(
+                a0, a, b, c, d, approx, bounds, epsi
             )
 
             if residumax <= 0.9 * epsi:
@@ -203,13 +197,8 @@ def subsolv(
 
             d_state = solve_newton_step(
                 state,
-                # bounds
                 bounds,
-                # approximations
-                p0,
-                q0,
-                P,
-                Q,
+                approx,
                 # parameters
                 a0,
                 a,
@@ -220,13 +209,8 @@ def subsolv(
             )
 
             state = line_search(
-                # bounds
                 bounds,
-                # approximations
-                p0,
-                q0,
-                P,
-                Q,
+                approx,
                 state,
                 d_state,
                 # parameters
@@ -247,11 +231,7 @@ def subsolv(
 def solve_newton_step(
     state,
     bounds: MMABounds,
-    # approximations
-    p0,
-    q0,
-    P,
-    Q,
+    approx: Approximations,
     # parameters
     a0,
     a,
@@ -270,11 +250,11 @@ def solve_newton_step(
     xlinv1 = 1 / xl1
     uxinv2 = 1 / ux2
     xlinv2 = 1 / xl2
-    plam = p0 + np.dot(P.T, state.lam)
-    qlam = q0 + np.dot(Q.T, state.lam)
-    gvec = np.dot(P, uxinv1) + np.dot(Q, xlinv1)
-    GG = (diags(uxinv2.flatten(), 0).dot(P.T)).T - (
-        diags(xlinv2.flatten(), 0).dot(Q.T)
+    plam = approx.p0 + np.dot(approx.P.T, state.lam)
+    qlam = approx.q0 + np.dot(approx.Q.T, state.lam)
+    gvec = np.dot(approx.P, uxinv1) + np.dot(approx.Q, xlinv1)
+    GG = (diags(uxinv2.flatten(), 0).dot(approx.P.T)).T - (
+        diags(xlinv2.flatten(), 0).dot(approx.Q.T)
     ).T
     dpsidx = plam / ux2 - qlam / xl2
     delx = (
@@ -372,14 +352,9 @@ def solve_newton_step(
 
 
 def line_search(
-    # bounds
     bounds: MMABounds,
-    # approximations
-    p0,
-    q0,
-    P,
-    Q,
-    state,
+    approx: Approximations,
+    state: State,
     d_state,
     # parameters
     a0,
@@ -444,7 +419,7 @@ def line_search(
 
     # Initial residual to be improved up on.
     residunorm, _ = state.relaxed_residual(
-        a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
+        a0, a, b, c, d, approx, bounds, epsi
     )
 
     # Find largest step sizes that decreases the residual.
@@ -463,7 +438,7 @@ def line_search(
 
         # Compute relaxed optimality conditions, Section 5.2 (Equations 5.9*).
         resinew, residumax = state.relaxed_residual(
-            a0, a, b, c, d, p0, q0, P, Q, bounds, epsi
+            a0, a, b, c, d, approx, bounds, epsi
         )
 
     return state
