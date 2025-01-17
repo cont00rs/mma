@@ -1,3 +1,5 @@
+"""Wrapper class for objective and constraint functions."""
+
 from typing import Optional
 
 import numpy as np
@@ -20,6 +22,7 @@ class TargetFunction:
         self.xold2: Optional[np.ndarray] = None
 
     def evaluate(self, x):
+        """Evaluate the objective and constraints at x."""
         self.x = x
         self.f0, self.df0dx, self.f, self.dfdx = self.func(x)
 

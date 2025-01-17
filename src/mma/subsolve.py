@@ -1,3 +1,5 @@
+"""The internal prima-dual "subsolver" for MMA."""
+
 import numpy as np
 from scipy.linalg import solve
 from scipy.sparse import diags_array
@@ -16,9 +18,12 @@ class State:
         - ymma (np.ndarray): Optimal values of the variables y_i.
         - zmma (float): Optimal value of the variable z.
         - lam (np.ndarray): Lagrange multipliers for the constraints.
-        - xsi (np.ndarray): Lagrange multipliers for the lower bounds on design variables.
-        - eta (np.ndarray): Lagrange multipliers for the upper bounds on design variables.
-        - mu (np.ndarray): Lagrange multipliers for the slack variables of the constraints.
+        - xsi (np.ndarray):
+            Lagrange multipliers for the lower bounds on design variables.
+        - eta (np.ndarray):
+            Lagrange multipliers for the upper bounds on design variables.
+        - mu (np.ndarray):
+            Lagrange multipliers for the slack variables of the constraints.
         - zet (float): Lagrange multiplier for the regularization term z.
         - s (np.ndarray): Slack variables for the general constraints.
     """
@@ -29,6 +34,7 @@ class State:
 
     @classmethod
     def from_alpha_beta(cls, m: int, bounds: MMABounds, c: np.ndarray):
+        """Create state from bounds approximations."""
         x = (bounds.alpha + bounds.beta) / 2
         y = np.ones((m, 1))
         z = np.array([[1.0]])
@@ -42,6 +48,7 @@ class State:
 
     @classmethod
     def from_variables(cls, x, y, z, lam, xsi, eta, mu, zet, s):
+        """Create state from all variables explicitly."""
         attributes = [
             "x",
             "y",
@@ -78,53 +85,64 @@ class State:
 
     @property
     def x(self):
+        """The x state."""
         start, end = self.offsets["x"]
         return self.state[start:end]
 
     @property
     def y(self):
+        """The y state."""
         start, end = self.offsets["y"]
         return self.state[start:end]
 
     @property
     def z(self):
+        """The z state."""
         start, end = self.offsets["z"]
         return self.state[start:end]
 
     @property
     def lam(self):
+        """The lamda state."""
         start, end = self.offsets["lam"]
         return self.state[start:end]
 
     @property
     def xsi(self):
+        """The xsi state."""
         start, end = self.offsets["xsi"]
         return self.state[start:end]
 
     @property
     def eta(self):
+        """The eta state."""
         start, end = self.offsets["eta"]
         return self.state[start:end]
 
     @property
     def mu(self):
+        """The mu state."""
         start, end = self.offsets["mu"]
         return self.state[start:end]
 
     @property
     def zet(self):
+        """The zeta state."""
         start, end = self.offsets["zet"]
         return self.state[start:end]
 
     @property
     def s(self):
+        """The slack state."""
         start, end = self.offsets["s"]
         return self.state[start:end]
 
     def copy(self):
+        """Copy the state to a new instace."""
         return State(self.state.copy(), self.offsets)
 
     def __add__(self, other):
+        """Add two states together."""
         assert isinstance(other, State)
         assert len(self.state) == len(other.state)
         return State(self.state + other.state, self.offsets)
@@ -152,7 +170,6 @@ class State:
         see Equations 5.9*, and the residuals are obtained from the
         full state vector of all equations.
         """
-
         plam = approx.p0 + approx.P.T @ self.lam
         qlam = approx.q0 + approx.Q.T @ self.lam
         gvec = approx.P @ (1 / (bounds.upp - self.x)) + approx.Q @ (
@@ -183,8 +200,7 @@ def subsolv(
     coeff: Coefficients,
     options: Options,
 ) -> State:
-    """
-    Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
+    """Solve the MMA (Method of Moving Asymptotes) subproblem for optimization.
 
     Minimize:
         SUM[p0j/(uppj-xj) + q0j/(xj-lowj)] + a0*z + SUM[ci*yi + 0.5*di*(yi)^2]
@@ -200,12 +216,13 @@ def subsolv(
         coeff (Coefficients)
         options (Options)
 
-    Returns:
+    Returns
+    -------
         State
-    """
 
+    """
     # Initial problem state as given in Section 5.5 beginning.
-    epsi = 1
+    epsi = 1.0
 
     state = State.from_alpha_beta(target_function.m, bounds, coeff.c)
 
@@ -239,6 +256,7 @@ def solve_newton_step(
     b: np.ndarray,
     epsi: float,
 ):
+    """Find Newton search direction."""
     ux = bounds.upp - state.x
     xl = state.x - bounds.low
 
@@ -359,14 +377,12 @@ def line_search(
 ):
     """Line search along Newton descent direction.
 
-
     Line search into the Newton direction, Section 5.4.
     This aims to find a step into the Newton direction without
     violating any of the constraints, which might happen when taking
     the full Newton step. The specifications of a "good" step are
     indicated in Section 5.4.
     """
-
     # Obtain the Newton direction to search along.
     d_state = solve_newton_step(state, bounds, approx, coeff, b, epsi)
 

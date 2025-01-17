@@ -1,3 +1,5 @@
+"""MMA functiona approximations."""
+
 import numpy as np
 from scipy.sparse import diags_array
 
@@ -14,8 +16,8 @@ class Approximations:
         bounds: MMABounds,
         raa0: float,
     ):
-        """
-        p0: Coefficients for the lower bound terms.
+        """p0: Coefficients for the lower bound terms.
+
         q0: Coefficients for the upper bound terms.
         P: Matrix of coefficients for the lower bound terms in the constraints.
         Q: Matrix of coefficients for the upper bound terms in the constraints.
@@ -48,7 +50,6 @@ class Approximations:
         additional transpose is needed, controlled through the
         objective keyword argument.
         """
-
         # Inverse bounds with eps to avoid divide by zero.
         # Last component of equations 3.3 and 3.4.
         delta_inv = 1 / np.maximum(bounds.bounds.delta(), self.eps_delta)
@@ -72,8 +73,7 @@ class Approximations:
 
         if objective:
             return p0, q0
-        else:
-            return p0.T, q0.T
+        return p0.T, q0.T
 
     def residual(
         self, bounds: MMABounds, target_function: TargetFunction

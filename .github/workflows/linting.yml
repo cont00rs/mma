@@ -1,4 +1,4 @@
-name: Testing
+name: Linting
 
 on:
   push:
@@ -26,5 +26,13 @@ jobs:
     - name: Install the project
       run: uv sync --all-extras --dev
 
-    - name: Run tests
-      run: uv run pytest test
+    - name: Run linters
+      run: uv run ruff check .
+
+    - name: Run formatter
+      if: always() && true
+      run: uv run ruff format --diff
+
+    - name: Run mypy type checker
+      if: always() && true
+      run: uv run mypy src/mma test/

@@ -1,10 +1,19 @@
-.PHONY: format test verify
+.PHONY: check format test types verify
 
 test:
 	uv run pytest
 
+check:
+	make test
+	make format
+	make types
+
 format:
 	uv run ruff check --fix
+	uv run ruff format .
+
+types:
+	uv run mypy src/mma test/
 
 coverage:
 	uv run pytest --cov=src/mma

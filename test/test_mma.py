@@ -1,3 +1,5 @@
+"""Rudimentary test functionality for MMA implementation."""
+
 import pathlib
 
 import numpy as np
@@ -9,7 +11,7 @@ from mma import Bounds, Options, mma
 def funct(
     xval: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Simple function with one design variable and bounds:
+    """Define a simple function with one design variable and bounds.
 
     Minimize:
         (x - 50)^2 + 25
@@ -27,7 +29,7 @@ def funct(
 def funct2(
     xval: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Simple function with two variables and bounds:
+    """Define a simple function with two variables and bounds.
 
     Minimize:
         (x1 - 50)^2 + (x2 - 25)^2 + 25
@@ -45,7 +47,7 @@ def funct2(
 def toy(
     xval: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """A toy problem defined as:
+    """Define a toy problem.
 
     Minimize:
          x(1)^2 + x(2)^2 + x(3)^2
@@ -69,7 +71,7 @@ def toy(
 def beam(
     xval: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """The beam problem from the MMA paper of Svanberg.
+    """Define the beam problem from the MMA paper of Svanberg.
 
     Minimize:
         c1 * (x(1) + x(2) + x(3) + x(4) + x(5))
@@ -102,6 +104,7 @@ def beam(
 def test_mma_toy(
     target_function, name, x, bounds, iteration_count, move_limit
 ):
+    """Run through problem cases and assert expected KKT outputs are found."""
     options = Options(
         iteration_count=iteration_count,
         move_limit=move_limit,
