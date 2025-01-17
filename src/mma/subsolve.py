@@ -169,6 +169,7 @@ def subsolv(
         bounds (Bounds)
         approx (Approximations)
         coeff (Coefficients)
+        options (Options)
 
     Returns:
         State
@@ -194,8 +195,7 @@ def subsolv(
             if residual <= 0.9 * epsi:
                 break
 
-            d_state = solve_newton_step(state, bounds, approx, coeff, b, epsi)
-            state = line_search(bounds, approx, state, d_state, coeff, b, epsi)
+            state = line_search(bounds, approx, state, coeff, b, options, epsi)
 
         epsi = 0.1 * epsi
 
@@ -326,9 +326,9 @@ def line_search(
     bounds: MMABounds,
     approx: Approximations,
     state: State,
-    d_state,
     coeff: Coefficients,
     b: np.ndarray,
+    options: Options,
     epsi,
 ):
     """Line search along Newton descent direction.
@@ -340,6 +340,9 @@ def line_search(
     the full Newton step. The specifications of a "good" step are
     indicated in Section 5.4.
     """
+
+    # Obtain the Newton direction to search along.
+    d_state = solve_newton_step(state, bounds, approx, coeff, b, epsi)
 
     xx = np.concatenate(
         (
@@ -391,9 +394,8 @@ def line_search(
     # Since the direction is a descent direction, a reduction will be found.
     # It can be found for fairly small step sizes though.
     resinew = np.inf
-    iteration_count = 50
 
-    for iteration in range(iteration_count):
+    for iteration in range(options.line_search_iteration_count):
         if resinew <= residunorm:
             break
 

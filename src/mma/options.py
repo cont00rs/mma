@@ -21,6 +21,7 @@ class Options:
         beta_factor: Factor to calculate the bounds beta.
         epsimin: A small positive number to ensure numerical stability of the subsolver.
         subsolver_iteration_count: Maximum number of iterations of the subsolver.
+        line_search_iteration_count: Maximum number of iterations for the line search.
     """
 
     iteration_count: int
@@ -35,6 +36,7 @@ class Options:
     alpha_factor: float = 0.1
     epsimin: float = 1e-7
     subsolver_iteration_count: int = 200
+    line_search_iteration_count: int = 50
 
 
 @dataclass
