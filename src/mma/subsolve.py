@@ -23,16 +23,56 @@ class State:
         - s (np.ndarray): Slack variables for the general constraints.
     """
 
-    def __init__(self, x, y, z, lam, xsi, eta, mu, zet, s):
-        self.x = x
-        self.y = y
-        self.z = z
-        self.lam = lam
-        self.xsi = xsi
-        self.eta = eta
-        self.mu = mu
-        self.zet = zet
-        self.s = s
+    def __init__(self, state: np.ndarray, offsets: dict[str, tuple[int, int]]):
+        self.state = state
+        self.offsets = offsets
+
+    # TODO: Can these properties be generated?
+
+    @property
+    def x(self):
+        start, end = self.offsets["x"]
+        return self.state[start:end]
+
+    @property
+    def y(self):
+        start, end = self.offsets["y"]
+        return self.state[start:end]
+
+    @property
+    def z(self):
+        start, end = self.offsets["z"]
+        return self.state[start:end]
+
+    @property
+    def lam(self):
+        start, end = self.offsets["lam"]
+        return self.state[start:end]
+
+    @property
+    def xsi(self):
+        start, end = self.offsets["xsi"]
+        return self.state[start:end]
+
+    @property
+    def eta(self):
+        start, end = self.offsets["eta"]
+        return self.state[start:end]
+
+    @property
+    def mu(self):
+        start, end = self.offsets["mu"]
+        return self.state[start:end]
+
+    @property
+    def zet(self):
+        start, end = self.offsets["zet"]
+        return self.state[start:end]
+
+    @property
+    def s(self):
+        start, end = self.offsets["s"]
+        return self.state[start:end]
 
     @classmethod
     def from_alpha_beta(cls, m: int, bounds: MMABounds, c: np.ndarray):
@@ -45,69 +85,58 @@ class State:
         mu = np.maximum(np.ones((m, 1)), 0.5 * c)
         zet = np.array([[1.0]])
         s = np.ones((m, 1))
+        return State.from_variables(x, y, z, lam, xsi, eta, mu, zet, s)
 
-        return State(x, y, z, lam, xsi, eta, mu, zet, s)
+    @classmethod
+    def from_variables(cls, x, y, z, lam, xsi, eta, mu, zet, s):
+        attributes = [
+            "x",
+            "y",
+            "z",
+            "lam",
+            "xsi",
+            "eta",
+            "mu",
+            "zet",
+            "s",
+        ]
+
+        arguments = [
+            x,
+            y,
+            z,
+            lam,
+            xsi,
+            eta,
+            mu,
+            zet,
+            s,
+        ]
+
+        offset = 0
+        offsets = dict()
+        for attr, arg in zip(attributes, arguments):
+            offsets[attr] = (offset, offset + len(arg))
+            offset += len(arg)
+
+        return State(np.concatenate(arguments, axis=0), offsets)
 
     def copy(self):
-        return State(
-            self.x.copy(),
-            self.y.copy(),
-            self.z.copy(),
-            self.lam.copy(),
-            self.xsi.copy(),
-            self.eta.copy(),
-            self.mu.copy(),
-            self.zet.copy(),
-            self.s.copy(),
-        )
+        return State(self.state.copy(), self.offsets)
 
     def __add__(self, other):
         assert isinstance(other, State)
-
-        return State(
-            self.x + other.x,
-            self.y + other.y,
-            self.z + other.z,
-            self.lam + other.lam,
-            self.xsi + other.xsi,
-            self.eta + other.eta,
-            self.mu + other.mu,
-            self.zet + other.zet,
-            self.s + other.s,
-        )
+        assert len(self.state) == len(other.state)
+        return State(self.state + other.state, self.offsets)
 
     def scale(self, value: int | float):
         """Scale all state variables."""
-        self.x *= value
-        self.y *= value
-        self.z *= value
-        self.lam *= value
-        self.xsi *= value
-        self.eta *= value
-        self.mu *= value
-        self.zet *= value
-        self.s *= value
+        self.state *= value
         return self
 
     def residual(self) -> tuple[float, float]:
-        residual = np.concatenate(
-            (
-                self.x,
-                self.y,
-                self.z,
-                self.lam,
-                self.xsi,
-                self.eta,
-                self.mu,
-                self.zet,
-                self.s,
-            ),
-            axis=0,
-        )
-
-        norm = np.sqrt(np.dot(residual.T, residual).item())
-        norm_max = np.max(np.abs(residual))
-        return norm, norm_max
+        """Return the 2-norm of the state and maximum absolute state value."""
+        return np.linalg.norm(self.state).item(), np.max(np.abs(self.state))
 
     def relaxed_residual(
         self,
@@ -134,7 +163,7 @@ class State:
             - qlam / (self.x - bounds.low) ** 2
         )
 
-        return State(
+        return State.from_variables(
             dpsidx - self.xsi + self.eta,
             coeff.c + coeff.d * self.y - self.mu - self.lam,
             coeff.a0 - self.zet - coeff.a.T @ self.lam,
@@ -319,7 +348,7 @@ def solve_newton_step(
     dzet = -state.zet + epsi / state.z - state.zet * dz / state.z
     ds = -state.s + epsi / state.lam - (state.s * dlam) / state.lam
 
-    return State(dx, dy, dz, dlam, dxsi, deta, dmu, dzet, ds)
+    return State.from_variables(dx, dy, dz, dlam, dxsi, deta, dmu, dzet, ds)
 
 
 def line_search(

@@ -161,7 +161,7 @@ def kktcheck(
     df0dx = target_function.df0dx
     dfdx = target_function.dfdx
 
-    state = State(
+    state = State.from_variables(
         df0dx + dfdx.T @ state.lam - state.xsi + state.eta,
         coeff.c + coeff.d * state.y - state.mu - state.lam,
         coeff.a0 - state.zet - coeff.a.T @ state.lam,
