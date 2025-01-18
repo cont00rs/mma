@@ -1,5 +1,6 @@
 """The core MMA implementation."""
 
+from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
@@ -11,12 +12,22 @@ from mma.subsolve import State, subsolv
 from mma.target_function import TargetFunction
 
 
+@dataclass
+class OptimizationResult:
+    """Result of a single MMA iteration."""
+
+    state: State
+    target_function: TargetFunction
+    kktnorm: float
+
+
 def mma(
     x: np.ndarray,
     func: Callable,
     bounds: Bounds,
     options: Options,
     coeff: Coefficients | None = None,
+    callback: Callable | None = None,
 ):
     """Driver of the MMA optimization.
 
@@ -29,19 +40,13 @@ def mma(
 
     # Lower, upper bounds
     mma_bounds = MMABounds(bounds, options)
-
-    kkttol = 0
-
-    # Test output
-    outvector1s = []
-    outvector2s = []
-    kktnorms = []
+    result = None
 
     # The iterations start
-    kktnorm: float = kkttol + 10
+    kktnorm: float = 10.0
 
     for _ in range(options.iteration_count):
-        if kktnorm <= kkttol:
+        if kktnorm <= 0:
             break
 
         # The MMA subproblem is solved at the current point (`xval`).
@@ -53,17 +58,19 @@ def mma(
         # The residual vector of the KKT conditions is calculated
         kktnorm = kktcheck(state, bounds, target_function, coeff)
 
-        outvector1 = np.concatenate((target_function.f0, target_function.f))
-        outvector2 = target_function.x.flatten()
-        outvector1s += [outvector1.flatten()]
-        outvector2s += [outvector2]
-        kktnorms += [kktnorm]
+        # Collect (intermediate) results.
+        result = OptimizationResult(state, target_function, kktnorm)
+
+        # Evaluate user-defined callback functions.
+        if callback:
+            callback(result)
+
     else:
         count = options.iteration_count
         msg = f"MMA did not converge within iteration limit ({count})"
         print(msg)
 
-    return np.array(outvector1s), np.array(outvector2s), np.array(kktnorms)
+    return result
 
 
 def mmasub(
