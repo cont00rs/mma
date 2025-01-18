@@ -61,6 +61,8 @@ def mma(
         # Collect (intermediate) results.
         result = OptimizationResult(state, target_function, kktnorm)
 
+        print(result.state.x)
+
         # Evaluate user-defined callback functions.
         if callback:
             callback(result)
