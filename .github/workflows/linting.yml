@@ -35,4 +35,4 @@ jobs:
 
     - name: Run mypy type checker
       if: always() && true
-      run: uv run mypy src/mma test/
+      run: uv run mypy src/mma tests/

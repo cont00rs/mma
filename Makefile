@@ -13,7 +13,7 @@ format:
 	uv run ruff format .
 
 types:
-	uv run mypy src/mma test/
+	uv run mypy src/mma tests/
 
 coverage:
 	uv run pytest --cov=src/mma
