@@ -18,6 +18,7 @@ class OptimizationResult:
 
     state: State
     target_function: TargetFunction
+    mma_bounds: MMABounds
     kktnorm: float
 
 
@@ -59,7 +60,9 @@ def mma(
         kktnorm = kktcheck(state, bounds, target_function, coeff)
 
         # Collect (intermediate) results.
-        result = OptimizationResult(state, target_function, kktnorm)
+        result = OptimizationResult(
+            state, target_function, mma_bounds, kktnorm
+        )
 
         print(result.state.x)
 
